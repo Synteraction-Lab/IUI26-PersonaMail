@@ -1,0 +1,47 @@
+[
+  {
+    "dimension": "Tone towards supervisor",
+    "current_value": "Respectful and appreciative",
+    "other_values": [
+      "More informal and direct",
+      "Highly formal and deferential",
+      "Warm and personal"
+    ]
+  },
+  {
+    "dimension": "Approach to explaining challenges",
+    "current_value": "General and neutral",
+    "other_values": [
+      "Specific and detailed",
+      "Brief, without detail",
+      "Highlighting external factors"
+    ]
+  },
+  {
+    "dimension": "Request framing",
+    "current_value": "Respectful and collaborative",
+    "other_values": [
+      "Direct and assertive",
+      "Humble and apologetic",
+      "Focus on project benefits"
+    ]
+  },
+  {
+    "dimension": "Call to action",
+    "current_value": "Propose discussion with plan",
+    "other_values": [
+      "Wait for supervisor's lead",
+      "State clear expectation",
+      "Request immediate approval"
+    ]
+  },
+  {
+    "dimension": "Emphasis on relationship",
+    "current_value": "Gratitude and commitment",
+    "other_values": [
+      "Explicitly state desire to maintain",
+      "Implicit through respectful tone",
+      "Focus solely on academic progress"
+    ]
+  }
+]

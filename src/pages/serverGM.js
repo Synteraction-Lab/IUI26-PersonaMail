@@ -6,7 +6,9 @@ const path = require('path');
 const app = express();
 const port = 3001;
 
-const geminiApiKey = 'AIzaSyDtfPGNYLFtems7_ctEQLHLmk6r0E68Gfo'; // Gemini API Key
+const geminiApiKey = 'AIzaSyDmFDKI1XPwWO2EhqdRQZkTSl8N3ZfUCeM'; // Gemini API Key
+//AIzaSyDim8J8xzRTmPl1ve98-gQq8UueGZhH9s8
+
 const geminiApiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
 
 const factorList = require('../../public/data/PredefinedData/factor_list.json'); // 引用 factor_list.json
@@ -14,12 +16,259 @@ const factorList = require('../../public/data/PredefinedData/factor_list.json');
 app.use(cors());
 app.use(express.json());
 
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 5;
+
+// Create logs directory if it doesn't exist
+const logsDir = path.join(__dirname, 'api_logs');
+if (!fs.existsSync(logsDir)) {
+    fs.mkdirSync(logsDir, { recursive: true });
+}
+
+// API Monitoring Middleware
+const apiLogger = (req, res, next) => {
+    const startTime = Date.now();
+    const timestamp = new Date().toISOString();
+    const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Log request data
+    const requestLog = {
+        requestId,
+        timestamp,
+        method: req.method,
+        url: req.url,
+        headers: req.headers,
+        body: req.body,
+        query: req.query,
+        params: req.params
+    };
+    
+    console.log(`\n🔵 [${timestamp}] ${req.method} ${req.url} - Request ID: ${requestId}`);
+    console.log('📤 Request Data:', JSON.stringify(requestLog, null, 2));
+    
+    // Capture the original res.json method
+    const originalJson = res.json;
+    const originalSend = res.send;
+    
+    // Override res.json to capture response data
+    res.json = function(data) {
+        const endTime = Date.now();
+        const duration = endTime - startTime;
+        
+        const responseLog = {
+            requestId,
+            timestamp: new Date().toISOString(),
+            statusCode: res.statusCode,
+            data: data,
+            duration: `${duration}ms`
+        };
+        
+        console.log(`\n🟢 [${new Date().toISOString()}] ${req.method} ${req.url} - Response (${duration}ms)`);
+        console.log('📥 Response Data:', JSON.stringify(responseLog, null, 2));
+        
+        // Save to log file
+        saveApiLog(req.url, requestLog, responseLog);
+        
+        return originalJson.call(this, data);
+    };
+    
+    // Override res.send to capture non-JSON responses
+    res.send = function(data) {
+        const endTime = Date.now();
+        const duration = endTime - startTime;
+        
+        const responseLog = {
+            requestId,
+            timestamp: new Date().toISOString(),
+            statusCode: res.statusCode,
+            data: data,
+            duration: `${duration}ms`
+        };
+        
+        console.log(`\n🟢 [${new Date().toISOString()}] ${req.method} ${req.url} - Response (${duration}ms)`);
+        console.log('📥 Response Data:', JSON.stringify(responseLog, null, 2));
+        
+        // Save to log file
+        saveApiLog(req.url, requestLog, responseLog);
+        
+        return originalSend.call(this, data);
+    };
+    
+    next();
+};
+
+// Function to save API logs to file
+const saveApiLog = (endpoint, requestLog, responseLog) => {
+    try {
+        const date = new Date().toISOString().split('T')[0];
+        const logFileName = `api-logs-${date}.json`;
+        const logFilePath = path.join(logsDir, logFileName);
+        
+        const logEntry = {
+            endpoint: endpoint.replace(/[^a-zA-Z0-9-_]/g, '_'),
+            request: requestLog,
+            response: responseLog
+        };
+        
+        let existingLogs = [];
+        if (fs.existsSync(logFilePath)) {
+            try {
+                const fileContent = fs.readFileSync(logFilePath, 'utf-8');
+                existingLogs = JSON.parse(fileContent);
+            } catch (error) {
+                console.warn('Could not parse existing log file:', error);
+            }
+        }
+        
+        existingLogs.push(logEntry);
+        fs.writeFileSync(logFilePath, JSON.stringify(existingLogs, null, 2));
+        
+        console.log(`💾 Log saved to: ${logFilePath}`);
+    } catch (error) {
+        console.error('Error saving API log:', error);
+    }
+};
+
+// Apply the logging middleware to all routes
+app.use(apiLogger);
+
+// Route to view API logs
+app.get('/api-logs', (req, res) => {
+    try {
+        const { date, type } = req.query;
+        const logDate = date || new Date().toISOString().split('T')[0];
+        
+        let logFileName;
+        if (type === 'gemini') {
+            logFileName = `gemini-logs-${logDate}.json`;
+        } else {
+            logFileName = `api-logs-${logDate}.json`;
+        }
+        
+        const logFilePath = path.join(logsDir, logFileName);
+        
+        if (!fs.existsSync(logFilePath)) {
+            return res.json({ 
+                message: `No logs found for ${logDate}`,
+                availableDates: getAvailableLogDates()
+            });
+        }
+        
+        const logs = JSON.parse(fs.readFileSync(logFilePath, 'utf-8'));
+        
+        res.json({
+            date: logDate,
+            type: type || 'api',
+            totalEntries: logs.length,
+            logs: logs,
+            availableDates: getAvailableLogDates()
+        });
+    } catch (error) {
+        console.error('Error reading logs:', error);
+        res.status(500).json({ error: 'Error reading logs' });
+    }
+});
+
+// Route to get available log dates
+app.get('/api-logs/dates', (req, res) => {
+    try {
+        const dates = getAvailableLogDates();
+        res.json({ availableDates: dates });
+    } catch (error) {
+        console.error('Error getting log dates:', error);
+        res.status(500).json({ error: 'Error getting log dates' });
+    }
+});
+
+// Helper function to get available log dates
+const getAvailableLogDates = () => {
+    try {
+        const files = fs.readdirSync(logsDir);
+        const dates = new Set();
+        
+        files.forEach(file => {
+            if (file.match(/^(api|gemini)-logs-(\d{4}-\d{2}-\d{2})\.json$/)) {
+                const match = file.match(/(\d{4}-\d{2}-\d{2})/);
+                if (match) {
+                    dates.add(match[1]);
+                }
+            }
+        });
+        
+        return Array.from(dates).sort().reverse();
+    } catch (error) {
+        console.error('Error getting available dates:', error);
+        return [];
+    }
+};
+
+// Route to clear logs (for cleanup)
+app.delete('/api-logs', (req, res) => {
+    try {
+        const { date, type } = req.query;
+        
+        if (date) {
+            // Delete specific date logs
+            let logFileName;
+            if (type === 'gemini') {
+                logFileName = `gemini-logs-${date}.json`;
+            } else if (type === 'api') {
+                logFileName = `api-logs-${date}.json`;
+            } else {
+                // Delete both types for the date
+                const apiLogFile = `api-logs-${date}.json`;
+                const geminiLogFile = `gemini-logs-${date}.json`;
+                
+                let deletedFiles = [];
+                if (fs.existsSync(path.join(logsDir, apiLogFile))) {
+                    fs.unlinkSync(path.join(logsDir, apiLogFile));
+                    deletedFiles.push(apiLogFile);
+                }
+                if (fs.existsSync(path.join(logsDir, geminiLogFile))) {
+                    fs.unlinkSync(path.join(logsDir, geminiLogFile));
+                    deletedFiles.push(geminiLogFile);
+                }
+                
+                return res.json({ 
+                    message: `Deleted log files for ${date}`,
+                    deletedFiles
+                });
+            }
+            
+            const logFilePath = path.join(logsDir, logFileName);
+            if (fs.existsSync(logFilePath)) {
+                fs.unlinkSync(logFilePath);
+                res.json({ message: `Deleted ${logFileName}` });
+            } else {
+                res.status(404).json({ error: `Log file ${logFileName} not found` });
+            }
+        } else {
+            // Clear all logs
+            const files = fs.readdirSync(logsDir);
+            const deletedFiles = [];
+            
+            files.forEach(file => {
+                if (file.match(/^(api|gemini)-logs-.*\.json$/)) {
+                    fs.unlinkSync(path.join(logsDir, file));
+                    deletedFiles.push(file);
+                }
+            });
+            
+            res.json({ 
+                message: 'All logs cleared',
+                deletedFiles
+            });
+        }
+    } catch (error) {
+        console.error('Error clearing logs:', error);
+        res.status(500).json({ error: 'Error clearing logs' });
+    }
+});
 
 
 async function sendRequestToGemini(prompt, options = {}) {
     let retries = 0;
-    const { enableThinking = false } = options; // Default to thinkingBudget: 0
+    const { enableThinking = false, timeout = 300000 } = options; // Default to 5 minutes timeout
+    const geminiRequestId = `gemini-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
     while (retries < MAX_RETRIES) {
         try {
@@ -29,47 +278,125 @@ async function sendRequestToGemini(prompt, options = {}) {
                 }],
                 generationConfig: {
                     thinkingConfig: {
-                        thinkingBudget: enableThinking ? 1000 : 0 
+                        thinkingBudget: enableThinking ? 2000 : 0 
                     }
                 }
             };
 
-            console.log('Request Body:', JSON.stringify(requestBody, null, 2));
+            console.log(`\n🤖 [${new Date().toISOString()}] Gemini API Request - ID: ${geminiRequestId}`);
+            console.log('📤 Gemini Request Body:', JSON.stringify({
+                ...requestBody,
+                prompt_preview: prompt.substring(0, 200) + (prompt.length > 200 ? '...' : ''),
+                full_prompt_length: prompt.length
+            }, null, 2));
 
             const response = await axios.post(geminiApiEndpoint, requestBody, {
                 headers: {
                     'Content-Type': 'application/json',
-                }
-
+                },
+                timeout: timeout, // Use custom timeout from options
+                maxContentLength: Infinity,
+                maxBodyLength: Infinity,
+                // Add connection timeout and keep-alive settings
+                httpAgent: new (require('http').Agent)({ 
+                    keepAlive: true, 
+                    timeout: 60000 // 1 minute connection timeout
+                }),
+                httpsAgent: new (require('https').Agent)({ 
+                    keepAlive: true, 
+                    timeout: 60000 // 1 minute connection timeout
+                })
             });
 
-            console.log('Gemini API Response:', response.data);
+            console.log(`\n🟢 [${new Date().toISOString()}] Gemini API Response - ID: ${geminiRequestId}`);
+            console.log('📥 Gemini Response:', JSON.stringify({
+                status: response.status,
+                candidates_count: response.data?.candidates?.length || 0,
+                finish_reason: response.data?.candidates?.[0]?.finishReason || 'unknown',
+                response_preview: response.data?.candidates?.[0]?.content?.parts?.[0]?.text?.substring(0, 200) + '...' || 'No content',
+                full_response_length: response.data?.candidates?.[0]?.content?.parts?.[0]?.text?.length || 0
+            }, null, 2));
+
+            // Save Gemini interaction to log file
+            saveGeminiLog(geminiRequestId, {
+                prompt,
+                requestBody,
+                response: response.data,
+                retryAttempt: retries
+            });
 
             if (response.data && response.data.candidates && response.data.candidates.length > 0 &&
                 response.data.candidates[0].content && response.data.candidates[0].content.parts &&
                 response.data.candidates[0].content.parts.length > 0) {
                 const finishReason = response.data.candidates[0].finishReason;
                 if (finishReason && finishReason !== 'STOP') {
-                     console.warn(`Gemini response finished with reason: ${finishReason}`);
+                     console.warn(`⚠️ Gemini response finished with reason: ${finishReason}`);
                 }
                 return response.data.candidates[0].content.parts[0].text;
             } else if (response.data?.promptFeedback?.blockReason) {
-                 console.error(`Gemini request blocked: ${response.data.promptFeedback.blockReason}`, response.data.promptFeedback);
+                 console.error(`❌ Gemini request blocked: ${response.data.promptFeedback.blockReason}`, response.data.promptFeedback);
                  throw new Error(`Gemini request blocked due to: ${response.data.promptFeedback.blockReason}`);
             } else {
-                console.error('Invalid response structure from Gemini:', response.data);
+                console.error('❌ Invalid response structure from Gemini:', response.data);
                 throw new Error('Gemini 响应结构无效');
             }
         } catch (error) {
             const errorMessage = error.response?.data?.error?.message || error.message;
-            console.error(`Gemini 请求出错（第 ${retries + 1} 次尝试）:`, errorMessage, error.response?.data);
+            const isSocketError = error.code === 'ECONNABORTED' || errorMessage.includes('socket hang up') || errorMessage.includes('timeout');
+            
+            console.error(`❌ Gemini 请求出错（第 ${retries + 1} 次尝试）:`, errorMessage, error.response?.data);
+            
+            // Log the error
+            saveGeminiLog(geminiRequestId, {
+                prompt,
+                error: errorMessage,
+                retryAttempt: retries,
+                errorDetails: error.response?.data,
+                errorCode: error.code
+            });
+            
             retries++;
             if (retries === MAX_RETRIES) throw new Error(`达到最大重试次数: ${errorMessage}`);
-            await new Promise(resolve => setTimeout(resolve, Math.pow(2, retries) * 1000));
+            
+            // For socket errors, use longer delays: 10s, 20s, 40s, 80s between retries
+            const baseDelay = isSocketError ? 5000 : 2500;
+            await new Promise(resolve => setTimeout(resolve, Math.pow(2, retries) * baseDelay));
         }
     }
     throw new Error('Gemini request failed after multiple retries.');
 }
+
+// Function to save Gemini-specific logs
+const saveGeminiLog = (geminiRequestId, logData) => {
+    try {
+        const date = new Date().toISOString().split('T')[0];
+        const logFileName = `gemini-logs-${date}.json`;
+        const logFilePath = path.join(logsDir, logFileName);
+        
+        const logEntry = {
+            timestamp: new Date().toISOString(),
+            requestId: geminiRequestId,
+            ...logData
+        };
+        
+        let existingLogs = [];
+        if (fs.existsSync(logFilePath)) {
+            try {
+                const fileContent = fs.readFileSync(logFilePath, 'utf-8');
+                existingLogs = JSON.parse(fileContent);
+            } catch (error) {
+                console.warn('Could not parse existing Gemini log file:', error);
+            }
+        }
+        
+        existingLogs.push(logEntry);
+        fs.writeFileSync(logFilePath, JSON.stringify(existingLogs, null, 2));
+        
+        console.log(`💾 Gemini log saved to: ${logFilePath}`);
+    } catch (error) {
+        console.error('Error saving Gemini log:', error);
+    }
+};
 
 app.post('/generate-text', async (req, res) => {
     const { prompt } = req.body;
@@ -365,38 +692,38 @@ app.post('/save-factor-choices', (req, res) => {
 
 
 app.post('/generate-first-draft', async (req, res) => {
-  const { userTask, factorChoices } = req.body;
+    const { userTask, factorChoices } = req.body;
 
-  if (!userTask || !factorChoices) {
-    return res.status(400).json({ error: 'userTask and factorChoices are required' });
-  }
-
-  const promptPath = path.join(__dirname, '../../public/data/Prompts/4first_draft_composer.prompt.md');
-  let promptTemplate;
-
-  try {
-    promptTemplate = fs.readFileSync(promptPath, 'utf-8');
-  } catch (error) {
-    console.error('Failed to load 4first_draft_composer.prompt.md:', error);
-    return res.status(500).json({ error: 'Failed to load prompt template' });
-  }
-
-  const prompt = promptTemplate
-    .replace('{{USER_TASK}}', userTask)
-    .replace('{{FACTOR_CHOICES}}', JSON.stringify(factorChoices, null, 2));
-
-  try {
-    const draftContent = await sendRequestToGemini(prompt);
-
-    if (!draftContent) {
-      throw new Error('AI response is empty');
+    if (!userTask || !factorChoices) {
+        return res.status(400).json({ error: 'userTask and factorChoices are required' });
     }
 
-    res.json({ draft: draftContent.trim() });
-  } catch (error) {
-    console.error('Error generating first draft:', error);
-    res.status(500).json({ error: 'Failed to generate first draft' });
-  }
+    const promptPath = path.join(__dirname, '../../public/data/Prompts/4first_draft_composer.prompt.md');
+    let promptTemplate;
+
+    try {
+        promptTemplate = fs.readFileSync(promptPath, 'utf-8');
+    } catch (error) {
+        console.error('Failed to load 4first_draft_composer.prompt.md:', error);
+        return res.status(500).json({ error: 'Failed to load prompt template' });
+    }
+
+    const prompt = promptTemplate
+        .replace('{{USER_TASK}}', userTask)
+        .replace('{{FACTOR_CHOICES}}', JSON.stringify(factorChoices, null, 2));
+
+    try {
+        const draftContent = await sendRequestToGemini(prompt, { enableThinking: false, timeout: 120000 }); // 2 minutes timeout
+
+        if (!draftContent) {
+            throw new Error('AI response is empty');
+        }
+
+        res.json({ draft: draftContent.trim() });
+    } catch (error) {
+        console.error('Error generating first draft:', error);
+        res.status(500).json({ error: 'Failed to generate first draft' });
+    }
 });
 
 app.post('/generate-anchor-email-draft', async (req, res) => {
@@ -1071,7 +1398,7 @@ app.post('/intent-analyzer-new', async (req, res) => {
         .replace('{{DRAFT_LATEST}}', latestDraft);
 
     try {
-        const responseText = await sendRequestToGemini(prompt);
+        const responseText = await sendRequestToGemini(prompt, { enableThinking: false });
 
         if (!responseText) {
             return res.status(500).json({ error: 'AI response is empty' });
@@ -1176,7 +1503,7 @@ app.post('/persona-anchor-adaptation', async (req, res) => {
 
 // Situation Anchor Adaptation interface
 app.post('/situation-anchor-adaptation', async (req, res) => {
-    const { userName, userTask, selectedAnchor } = req.body;
+    const { userName, userTask, selectedAnchor, defaultFactor } = req.body;
 
     if (!userName || !userTask || !selectedAnchor) {
         return res.status(400).json({ error: 'userName, userTask, and selectedAnchor are required' });
@@ -1215,7 +1542,8 @@ app.post('/situation-anchor-adaptation', async (req, res) => {
         const prompt = promptTemplate
             .replace('{{PREVIOUS_USER_TASK}}', previousUserTask)
             .replace('{{USER_TASK}}', userTask)
-            .replace('{{PREVIOUS_SITUATION_FACTORS}}', JSON.stringify(previousSituationFactors, null, 2));
+            .replace('{{PREVIOUS_SITUATION_FACTORS}}',defaultFactor)
+            //.replace('{{PREVIOUS_SITUATION_FACTORS}}', JSON.stringify(previousSituationFactors, null, 2));
 
         const responseText = await sendRequestToGemini(prompt);
 
@@ -1294,7 +1622,27 @@ app.post('/regenerate-anchor', async (req, res) => {
         const promptTemplate = fs.readFileSync(promptPath, 'utf-8');
 
         // Load current anchor data from the provided path
-        const fullAnchorPath = path.join(__dirname, '../data/SessionData', userName, anchorJsonPath.split('/').slice(-2).join('/'));
+        // Extract filename and reconstruct proper path to avoid path duplication issues
+        console.log('anchorJsonPath received:', anchorJsonPath);
+        
+        // Extract just the filename from the path (handles both forward and backward slashes)
+        const filename = anchorJsonPath.split(/[\/\\]/).pop();
+        console.log('extracted filename:', filename);
+        
+        // Determine anchor type from filename
+        let anchorType;
+        if (filename.includes('Persona')) {
+            anchorType = 'PersonaAnchor';
+        } else if (filename.includes('Situation')) {
+            anchorType = 'SituationAnchor';
+        } else {
+            throw new Error('Could not determine anchor type from filename: ' + filename);
+        }
+        
+        // Construct the proper path
+        const fullAnchorPath = path.join(__dirname, '../data/SessionData', userName, anchorType, filename);
+        console.log('constructed fullAnchorPath:', fullAnchorPath);
+        
         let currentAnchor = {};
         if (fs.existsSync(fullAnchorPath)) {
             currentAnchor = JSON.parse(fs.readFileSync(fullAnchorPath, 'utf-8'));
@@ -1324,7 +1672,16 @@ app.post('/regenerate-anchor', async (req, res) => {
         updatedAnchor.userTask = userTask;
         updatedAnchor.taskId = taskId;
 
+        // Ensure the directory exists before writing the file
+        const dir = path.dirname(fullAnchorPath);
+        console.log('Directory to create:', dir);
+        if (!fs.existsSync(dir)) {
+            console.log('Creating directory:', dir);
+            fs.mkdirSync(dir, { recursive: true });
+        }
+
         // Save the updated anchor to the original path
+        console.log('About to write to path:', fullAnchorPath);
         fs.writeFileSync(fullAnchorPath, JSON.stringify(updatedAnchor, null, 2));
 
         res.json({ message: 'Anchor regenerated successfully', updatedAnchor });
@@ -1426,9 +1783,9 @@ app.post('/ai-generate-rewrite', async (req, res) => {
 });
 
 app.post('/stylebook-recommend', async (req, res) => {
-    const { userTask, userName, taskId, componentList } = req.body;
+    const { userTask, userName, taskId, selectedContent } = req.body;
 
-    if (!userTask || !userName || !taskId || !componentList) {
+    if (!userTask || !userName || !taskId || !selectedContent) {
         return res.status(400).json({ error: 'Missing required fields' });
     }
 
@@ -1456,12 +1813,20 @@ app.post('/stylebook-recommend', async (req, res) => {
         if (fs.existsSync(stylebookPath)) {
             adaptiveStylebook = JSON.parse(fs.readFileSync(stylebookPath, 'utf-8'));
         }
-
+        // Load draft latest
+        const draftLatestPath = path.join(__dirname, '../data/SessionData', userName, taskId, 'drafts', 'latest.md');
+        let draftLatest = '';
+        try {
+            draftLatest = fs.readFileSync(draftLatestPath, 'utf-8');
+        } catch (error) {
+            console.error('Failed to read latest draft:', error);
+            return res.status(500).json({ error: 'Failed to read latest draft' });
+        }
         // Replace placeholders in the prompt
         const prompt = promptTemplate
             .replace('{{USER_TASK}}', userTask)
-            .replace('{{FACTOR_CHOICES}}', JSON.stringify(factorChoices, null, 2))
-            .replace('{{COMPONENT_LIST}}', JSON.stringify(componentList, null, 2))
+            .replace('{{DRAFT_LATEST}}', draftLatest)
+            .replace('{{SELECTED_CONTENT}}', selectedContent)
             .replace('{{ADAPTIVE_STYLEBOOK}}', JSON.stringify(adaptiveStylebook, null, 2));
 
         // Send request to Gemini

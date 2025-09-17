@@ -191,63 +191,180 @@ const EmailEditor = () => {
     }, []);
     
 
-    // Generate Anchors function
+    // Generate Anchors function with improved error handling and timeout
     const handleGenerateAnchors = async () => {
+        // Prevent multiple simultaneous requests
+        if (anchorLoading) {
+            console.log('Anchor generation already in progress, ignoring duplicate request');
+            return;
+        }
+        
+        let timeoutId1, timeoutId2;
+        
         try {
             setAnchorLoading(true);
             
-            const response = await axios.post('http://localhost:3001/generate-anchor-builder', {
+            // Configure axios with timeout for this session
+            const axiosConfig = {
+                timeout: 25000, // 25 seconds for individual requests
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            };
+            
+            // Create timeout promise for anchor generation (30 seconds)
+            const createTimeoutPromise = (timeoutMs, errorMessage) => {
+                return new Promise((_, reject) => {
+                    const id = setTimeout(() => {
+                        reject(new Error(errorMessage));
+                    }, timeoutMs);
+                    return id;
+                });
+            };
+            
+            // Step 1: Generate anchor data with timeout
+            console.log('Step 1: Generating anchor data...');
+            message.loading('Generating anchor data...', 0);
+            
+            const anchorPromise = axios.post('http://localhost:3001/generate-anchor-builder', {
                 userTask: userTask,
                 userName: globalUsername,
                 taskId: globalTaskId
+            }, axiosConfig);
+            
+            const timeout1 = createTimeoutPromise(30000, 'Timeout: Anchor generation is taking too long. Please check your network connection and try again.');
+            
+            let response;
+            try {
+                response = await Promise.race([anchorPromise, timeout1]);
+                message.destroy(); // Clear loading message
+                console.log('✓ Anchor data generated successfully');
+            } catch (error) {
+                message.destroy();
+                if (error.message.includes('Timeout')) {
+                    message.error(error.message, 5);
+                } else if (error.code === 'ECONNABORTED' || error.code === 'ERR_NETWORK') {
+                    message.error('Network error: Unable to connect to anchor generation service. Please check your connection and try again.', 5);
+                } else {
+                    message.error('Failed to generate anchor data. Please try again.', 3);
+                }
+                console.error('Anchor generation failed:', error);
+                return;
+            }
+            
+            // Validate response
+            if (!response.data || !response.data.anchorData) {
+                message.error('Invalid response from anchor generation service. Please try again.');
+                console.error('Invalid anchor response:', response.data);
+                return;
+            }
+            
+            // Parse anchor data as JSON
+            let parsedAnchorData;
+            try {
+                const sanitizedContent = response.data.anchorData.replace(/```json|```/g, '');
+                parsedAnchorData = JSON.parse(sanitizedContent);
+                console.log('✓ Anchor data parsed successfully');
+            } catch (error) {
+                console.error('Failed to parse anchor data:', error);
+                message.error('Failed to parse anchor data format. Please try regenerating.');
+                return;
+            }
+            
+            // Validate parsed data structure
+            if (!parsedAnchorData.persona || !parsedAnchorData.situation) {
+                message.error('Incomplete anchor data received. Missing persona or situation information.');
+                console.error('Invalid anchor data structure:', parsedAnchorData);
+                return;
+            }
+            
+            // Step 2: Generate and save images with timeout
+            console.log('Step 2: Generating images...');
+            message.loading('Generating persona and situation images...', 0);
+            
+            const imageAxiosConfig = {
+                ...axiosConfig,
+                timeout: 55000 // 55 seconds for image generation (longer as it's more intensive)
+            };
+            
+            const imagePromise = axios.post('http://localhost:3002/generate-and-save-images', {
+                userName: globalUsername,
+                personaAnchor: parsedAnchorData.persona,
+                situationAnchor: parsedAnchorData.situation,
+                userTask: userTask,
+                taskId: globalTaskId
+            }, imageAxiosConfig);
+            
+            const timeout2 = createTimeoutPromise(60000, 'Timeout: Image generation is taking too long. Please check your network connection and try again.');
+            
+            let imageResponse;
+            try {
+                imageResponse = await Promise.race([imagePromise, timeout2]);
+                message.destroy(); // Clear loading message
+                console.log('✓ Images generated successfully');
+            } catch (error) {
+                message.destroy();
+                if (error.message.includes('Timeout')) {
+                    message.error(error.message, 5);
+                } else if (error.code === 'ECONNABORTED' || error.code === 'ERR_NETWORK') {
+                    message.error('Network error: Unable to connect to image generation service. Please check your connection and try again.', 5);
+                } else {
+                    message.error('Failed to generate images. Please try again.', 3);
+                }
+                console.error('Image generation failed:', error);
+                return;
+            }
+            
+            // Validate image response
+            if (!imageResponse.data || 
+                !imageResponse.data.personaImagePath || 
+                !imageResponse.data.situationImagePath) {
+                message.error('Failed to generate required images. Please try again.');
+                console.error('Invalid image response:', imageResponse.data);
+                return;
+            }
+            
+            // Step 3: Combine data and navigate
+            const anchorContentWithImages = {
+                ...parsedAnchorData,
+                personaImagePath: imageResponse.data.personaImagePath,
+                situationImagePath: imageResponse.data.situationImagePath,
+                personaJsonPath: imageResponse.data.personaJsonPath,
+                situationJsonPath: imageResponse.data.situationJsonPath
+            };
+            
+            console.log('✓ All anchor content prepared successfully');
+            console.log('Passing to AnchorBuilder:', anchorContentWithImages);
+            
+            message.success('Anchors generated successfully! Navigating to Anchor Builder...', 2);
+            
+            // Navigate to AnchorBuilder page with the data
+            navigate('/anchorBuilders', {
+                state: {
+                    anchorContent: anchorContentWithImages,
+                    userTask: userTask,
+                    userName: globalUsername,
+                    taskId: globalTaskId
+                }
             });
             
-            if (response.data && response.data.anchorData) {
-                // Parse anchor data as JSON
-                let parsedAnchorData;
-                try {
-                    const sanitizedContent = response.data.anchorData.replace(/```json|```/g, '');
-                    parsedAnchorData = JSON.parse(sanitizedContent);
-                } catch (error) {
-                    console.error('Failed to parse anchor data:', error);
-                    message.error('Failed to parse anchor data');
-                    return;
-                }
-                
-                // 调用图片生成和保存服务
-                const imageResponse = await axios.post('http://localhost:3002/generate-and-save-images', {
-                    userName: globalUsername,
-                    personaAnchor: parsedAnchorData.persona,
-                    situationAnchor: parsedAnchorData.situation,
-                    userTask: userTask,
-                    taskId: globalTaskId
-                });
-                
-                // 将图片和JSON路径添加到anchor数据中
-                const anchorContentWithImages = {
-                    ...parsedAnchorData,
-                    personaImagePath: imageResponse.data.personaImagePath,
-                    situationImagePath: imageResponse.data.situationImagePath,
-                    personaJsonPath: imageResponse.data.personaJsonPath,
-                    situationJsonPath: imageResponse.data.situationJsonPath
-                };
-                console.log('Passing to AnchorBuilder:', anchorContentWithImages);
-                
-                // Navigate to AnchorBuilder page with the data
-                navigate('/anchorBuilders', {
-                    state: {
-                        anchorContent: anchorContentWithImages,
-                        userTask: userTask,
-                        userName: globalUsername,
-                        taskId: globalTaskId
-                    }
-                });
-            }
         } catch (error) {
-            console.error('Failed to generate anchors:', error);
-            message.error('Failed to generate anchors');
+            message.destroy(); // Clear any loading messages
+            console.error('Unexpected error in generateAnchors:', error);
+            
+            // Provide specific error messages based on error type
+            if (error.message?.includes('Network Error') || error.code === 'ERR_NETWORK') {
+                message.error('Network connection error. Please check your internet connection and try again.', 5);
+            } else if (error.message?.includes('timeout') || error.code === 'ECONNABORTED') {
+                message.error('Request timeout. The service is taking too long to respond. Please try again.', 5);
+            } else {
+                message.error('An unexpected error occurred while generating anchors. Please try again.', 3);
+            }
         } finally {
+            // Ensure loading state is always reset
             setAnchorLoading(false);
+            message.destroy(); // Clean up any remaining messages
+            console.log('Generate anchors process completed, loading state reset');
         }
     };
 
@@ -956,7 +1073,7 @@ const EmailEditor = () => {
         }
     };
     // Component that appears when text is selected/highlighted
-const FloatingToolbar = ({ component, onReplace, onClose, position, value, setValue, setEditorKey, combinedResults, setCombinedResults, setComponents, originalText, setOriginalText, components, globalTaskId, getNodeText, setLastModifiedComponent }) => {
+const FloatingToolbar = ({ component, onReplace, onClose, position, value, setValue, setEditorKey, combinedResults, setCombinedResults, setComponents, originalText, setOriginalText, components, globalTaskId, globalUsername, userTask, getNodeText, setLastModifiedComponent }) => {
     const [isEditing, setIsEditing] = useState(false);
     const [isRewriting, setIsRewriting] = useState(false);
     const [isQuickfixing, setIsQuickfixing] = useState(false);
@@ -974,6 +1091,15 @@ const FloatingToolbar = ({ component, onReplace, onClose, position, value, setVa
     const [expandedContent, setExpandedContent] = useState('');
     const [shortenedContent, setShortenedContent] = useState('');
     const [isRewriteLoading, setIsRewriteLoading] = useState(false);
+    const [isManualEditing, setIsManualEditing] = useState(false);
+    const [manualEditContent, setManualEditContent] = useState('');
+    
+    // States for modification record modal
+    const [isModificationRecord, setIsModificationRecord] = useState(false);
+    const [originalTextInput, setOriginalTextInput] = useState('');
+    const [revisedTextInput, setRevisedTextInput] = useState('');
+    const [modificationReasonInput, setModificationReasonInput] = useState('');
+    const [modificationRecordLoading, setModificationRecordLoading] = useState(false);
 
     if (!component || !position) return null;
 
@@ -1001,7 +1127,7 @@ const FloatingToolbar = ({ component, onReplace, onClose, position, value, setVa
                 userTask: userTask,
                 userName: globalUsername,
                 taskId: globalTaskId,
-                componentList: componentList
+                selectedContent: component.content
             });
             
             const recommendations = response.data.recommendations || [];
@@ -1066,6 +1192,73 @@ const FloatingToolbar = ({ component, onReplace, onClose, position, value, setVa
         }
     };
 
+    const handleManualEdit = () => {
+        setManualEditContent(component.content);
+        setIsManualEditing(true);
+    };
+
+    const handleModificationRecord = () => {
+        setOriginalTextInput(component.content || '');
+        setRevisedTextInput('');
+        setModificationReasonInput('');
+        setIsModificationRecord(true);
+    };
+
+    const handleSaveModificationRecord = async () => {
+        if (!originalTextInput.trim() || !revisedTextInput.trim() || !modificationReasonInput.trim()) {
+            message.warning('Please fill in all fields');
+            return;
+        }
+
+        setModificationRecordLoading(true);
+        try {
+            // Prepare component data for the API call
+            const componentBeforeEdit = {
+                id: component.id,
+                title: component.title,
+                content: originalTextInput
+            };
+
+            const componentAfterEdit = {
+                id: component.id,
+                title: component.title,
+                content: revisedTextInput
+            };
+
+            // Call the same API as handleModalSave
+            const response = await axios.post('http://localhost:3001/save-manual-edit-tool', {
+                userTask: userTask,
+                userName: globalUsername,
+                taskId: globalTaskId,
+                userEditReason: modificationReasonInput,
+                componentBeforeEdit: componentBeforeEdit,
+                componentAfterEdit: componentAfterEdit
+            });
+
+            console.log('Manual modification record saved:', response.data);
+            
+            // Reset modal state
+            setIsModificationRecord(false);
+            setOriginalTextInput('');
+            setRevisedTextInput('');
+            setModificationReasonInput('');
+            
+            message.success('Modification record saved successfully');
+        } catch (error) {
+            console.error('Error saving modification record:', error);
+            message.error('Failed to save modification record');
+        } finally {
+            setModificationRecordLoading(false);
+        }
+    };
+
+    const handleCancelModificationRecord = () => {
+        setIsModificationRecord(false);
+        setOriginalTextInput('');
+        setRevisedTextInput('');
+        setModificationReasonInput('');
+    };
+
     const handleGenerateRewrite = async () => {
         if (!rewritePrompt.trim()) {
             message.warning('Please enter a rewrite prompt');
@@ -1089,6 +1282,84 @@ const FloatingToolbar = ({ component, onReplace, onClose, position, value, setVa
         } finally {
             setIsRewriteLoading(false);
         }
+    };
+
+    const handleApplyManualEdit = async () => {
+        if (manualEditContent && manualEditContent !== component.content) {
+            try {
+                // Get linkedIntents for this component
+                const combinedResult = combinedResults?.find(result => result.id === component.id);
+                const linkedIntents = combinedResult?.linkedIntents || [];
+                
+                // Update the editor value directly (same as other apply functions)
+                const newValue = value.map(node => {
+                    const nodeText = getNodeText(null, node);
+                    if (nodeText.includes(component.content)) {
+                        const updatedText = nodeText.replace(component.content, manualEditContent);
+                        return {
+                            ...node,
+                            children: [{
+                                text: updatedText,
+                                highlight: true,
+                                componentId: component.id,
+                                hasDimensions: linkedIntents.length > 0,
+                                linkedIntents: linkedIntents
+                            }]
+                        };
+                    }
+                    return node;
+                });
+                
+                setValue(newValue);
+                setEditorKey(prev => prev + 1);
+
+                // Update component states
+                setComponents(prevComponents => 
+                    prevComponents.map(comp => 
+                        comp.id === component.id ? { ...comp, content: manualEditContent } : comp
+                    )
+                );
+
+                // Update combinedResults
+                setCombinedResults(prevResults => 
+                    prevResults.map(comp => 
+                        comp.id === component.id 
+                            ? { ...comp, content: manualEditContent }
+                            : comp
+                    )
+                );
+
+                // Update originalText and save to draft
+                const updatedText = originalText.replace(component.content, manualEditContent);
+                setOriginalText(updatedText);
+                
+                await axios.post(`http://localhost:3001/sessiondata/${globalTaskId}/drafts/latest.md`, {
+                    content: updatedText
+                });
+                
+                // Track this modification for potential modal display
+                if (typeof setLastModifiedComponent === 'function') {
+                    setLastModifiedComponent({
+                        componentId: component.id,
+                        oldContent: component.content,
+                        newContent: manualEditContent
+                    });
+                }
+                
+                setIsManualEditing(false);
+                onClose();
+                
+                message.success('Content applied and saved successfully');
+            } catch (error) {
+                console.error('Failed to apply manual edit:', error);
+                message.error('Failed to save changes');
+            }
+        }
+    };
+
+    const handleCancelManualEdit = () => {
+        setIsManualEditing(false);
+        setManualEditContent('');
     };
 
     const handleApplyRewrite = async () => {
@@ -1459,7 +1730,7 @@ const FloatingToolbar = ({ component, onReplace, onClose, position, value, setVa
                 overflow: 'hidden'
             }}
         >
-            {!isEditing && !isRewriting && !isQuickfixing && !isExpanding && !isShortening ? (
+            {!isEditing && !isRewriting && !isQuickfixing && !isExpanding && !isShortening && !isManualEditing && !isModificationRecord ? (
                 <div style={{ display: 'flex', alignItems: 'center' }}>
                     {/* <button
                         style={buttonStyle}
@@ -1494,6 +1765,30 @@ const FloatingToolbar = ({ component, onReplace, onClose, position, value, setVa
                         title="AI Rewrite"
                     >
                         🔄 AI Rewrite
+                    </button>
+                    
+                    <div style={{ width: '1px', height: '24px', background: '#e0e0e0' }} />
+                    
+                    <button
+                        style={buttonStyle}
+                        onMouseEnter={(e) => Object.assign(e.target.style, buttonHoverStyle)}
+                        onMouseLeave={(e) => Object.assign(e.target.style, buttonStyle)}
+                        onClick={handleManualEdit}
+                        title="Manual Edit"
+                    >
+                        ✏️ Manual Edit
+                    </button>
+                    
+                    <div style={{ width: '1px', height: '24px', background: '#e0e0e0' }} />
+                    
+                    <button
+                        style={buttonStyle}
+                        onMouseEnter={(e) => Object.assign(e.target.style, buttonHoverStyle)}
+                        onMouseLeave={(e) => Object.assign(e.target.style, buttonStyle)}
+                        onClick={handleModificationRecord}
+                        title="Adding Modification Record"
+                    >
+                        📝 Add Record
                     </button>
                     
                     <div style={{ width: '1px', height: '24px', background: '#e0e0e0' }} />
@@ -1775,6 +2070,106 @@ const FloatingToolbar = ({ component, onReplace, onClose, position, value, setVa
                         >
                             Apply
                         </button>
+                    </div>
+                </div>
+            ) : isManualEditing ? (
+                <div style={{ padding: '12px', minWidth: '400px', maxWidth: '600px' }}>
+                    <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px', color: '#333' }}>
+                        Manual Edit
+                    </div>
+                    
+                    <div style={{ marginBottom: '12px' }}>
+                        <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>Original Content:</div>
+                        <div style={{
+                            padding: '8px',
+                            background: '#f5f5f5',
+                            borderRadius: '4px',
+                            fontSize: '13px',
+                            lineHeight: '1.4',
+                            maxHeight: '80px',
+                            overflow: 'auto'
+                        }}>
+                            {component.content}
+                        </div>
+                    </div>
+
+                    <div style={{ marginBottom: '12px' }}>
+                        <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>Edit Content:</div>
+                        <Input.TextArea
+                            value={manualEditContent}
+                            onChange={(e) => setManualEditContent(e.target.value)}
+                            placeholder="Edit the content as you wish..."
+                            rows={6}
+                            style={{ fontSize: '13px' }}
+                        />
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', borderTop: '1px solid #e0e0e0', paddingTop: '12px' }}>
+                        <Button size="small" onClick={handleCancelManualEdit}>
+                            Cancel
+                        </Button>
+                        <Button 
+                            size="small" 
+                            type="primary" 
+                            onClick={handleApplyManualEdit}
+                            disabled={!manualEditContent.trim() || manualEditContent === component.content}
+                        >
+                            Apply
+                        </Button>
+                    </div>
+                </div>
+            ) : isModificationRecord ? (
+                <div style={{ padding: '12px', minWidth: '400px', maxWidth: '500px' }}>
+                    <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px', color: '#333' }}>
+                        Adding Modification Record
+                    </div>
+                    
+                    <div style={{ marginBottom: '12px' }}>
+                        <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>Original Text:</div>
+                        <Input.TextArea
+                            value={originalTextInput}
+                            onChange={(e) => setOriginalTextInput(e.target.value)}
+                            placeholder="Enter the original text..."
+                            rows={3}
+                            style={{ fontSize: '13px' }}
+                        />
+                    </div>
+
+                    <div style={{ marginBottom: '12px' }}>
+                        <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>Revised Text:</div>
+                        <Input.TextArea
+                            value={revisedTextInput}
+                            onChange={(e) => setRevisedTextInput(e.target.value)}
+                            placeholder="Enter the revised text..."
+                            rows={3}
+                            style={{ fontSize: '13px' }}
+                        />
+                    </div>
+
+                    <div style={{ marginBottom: '12px' }}>
+                        <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>Modification Reason:</div>
+                        <Input.TextArea
+                            value={modificationReasonInput}
+                            onChange={(e) => setModificationReasonInput(e.target.value)}
+                            placeholder="Enter the reason for this modification..."
+                            rows={2}
+                            style={{ fontSize: '13px' }}
+                        />
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', borderTop: '1px solid #e0e0e0', paddingTop: '12px' }}>
+                        <Button size="small" onClick={handleCancelModificationRecord}>
+                            Cancel
+                        </Button>
+                        <Button 
+                            size="small" 
+                            type="primary" 
+                            onClick={handleSaveModificationRecord}
+                            loading={modificationRecordLoading}
+                            disabled={!originalTextInput.trim() || !revisedTextInput.trim() || !modificationReasonInput.trim()}
+                        >
+                            Save Record
+                        </Button>
                     </div>
                 </div>
             ) : (
@@ -2716,7 +3111,7 @@ const addDimensionsToValue = (editorValue, componentContent, componentId, linked
     const handleModalCancel = () => {
         setChangeModal({ visible: false, oldContent: '', newContent: '', componentId: null });
         setModificationReason('');
-        // Keep lastModifiedComponent for potential future modal display
+        setLastModifiedComponent(null); // Clear lastModifiedComponent to prevent modal from showing again
         
         message.info('Modification cancelled');
     };
@@ -3010,7 +3405,22 @@ const addDimensionsToValue = (editorValue, componentContent, componentId, linked
                     <Button onClick={safeResetEditor} danger>
                         Reset Editor
                     </Button>
-                    <Button type="primary" onClick={handleGenerateAnchors} loading={anchorLoading}>Generate Anchors</Button>
+                    <Button type="primary" onClick={handleGenerateAnchors} loading={anchorLoading} disabled={anchorLoading}>
+                        {anchorLoading ? 'Generating Anchors...' : 'Generate Anchors'}
+                    </Button>
+                    {anchorLoading && (
+                        <Button 
+                            onClick={() => {
+                                setAnchorLoading(false);
+                                message.destroy();
+                                message.warning('Anchor generation cancelled. You can try again.');
+                            }}
+                            danger
+                            style={{ marginLeft: 8 }}
+                        >
+                            Cancel
+                        </Button>
+                    )}
                 </div>
             </div>
             
@@ -3129,6 +3539,8 @@ const addDimensionsToValue = (editorValue, componentContent, componentId, linked
                                         setOriginalText={setOriginalText}
                                         components={components}
                                         globalTaskId={globalTaskId}
+                                        globalUsername={globalUsername}
+                                        userTask={userTask}
                                         getNodeText={getNodeText}
                                         setLastModifiedComponent={setLastModifiedComponent}
                                     />

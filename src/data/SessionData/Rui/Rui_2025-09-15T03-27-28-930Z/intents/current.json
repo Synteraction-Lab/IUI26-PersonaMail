@@ -1,0 +1,47 @@
+[
+  {
+    "dimension": "Approach to the Request",
+    "current_value": "Tentative exploration",
+    "other_values": [
+      "Direct request",
+      "Subtle hint",
+      "Informal casual mention"
+    ]
+  },
+  {
+    "dimension": "Justification Strategy for Extension",
+    "current_value": "Project benefit with living cost mention",
+    "other_values": [
+      "Solely project-focused",
+      "Solely personal financial need",
+      "General difficulty without specifics"
+    ]
+  },
+  {
+    "dimension": "Relationship Acknowledgment and Mitigation",
+    "current_value": "Proactive relationship reassurance",
+    "other_values": [
+      "Implicit trust in relationship",
+      "Focus solely on the request",
+      "Minimally apologetic tone"
+    ]
+  },
+  {
+    "dimension": "Overall Email Tone and Formality",
+    "current_value": "Respectful warmth",
+    "other_values": [
+      "Strictly formal",
+      "Casual and direct",
+      "Deferential"
+    ]
+  },
+  {
+    "dimension": "Call to Action for Next Steps",
+    "current_value": "Collaborative discussion invitation",
+    "other_values": [
+      "Firm expectation for approval",
+      "Open-ended inquiry without specific meeting",
+      "No explicit call to action"
+    ]
+  }
+]

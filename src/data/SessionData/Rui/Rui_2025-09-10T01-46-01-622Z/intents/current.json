@@ -1,0 +1,38 @@
+[
+  {
+    "dimension": "Tone & Relationship Management",
+    "current_value": "Warm, appreciative, slightly informal",
+    "other_values": [
+      "Strictly formal, professional",
+      "Very friendly, casual",
+      "Direct, business-like"
+    ]
+  },
+  {
+    "dimension": "Salary Discussion Approach",
+    "current_value": "Justified request, open to discussion",
+    "other_values": [
+      "Directly state desired figure",
+      "Solely ask for a call to discuss",
+      "Mention market rates only, no figure"
+    ]
+  },
+  {
+    "dimension": "Enthusiasm & Commitment",
+    "current_value": "High, explicitly stated",
+    "other_values": [
+      "Understated, implied",
+      "Focus solely on salary",
+      "Conditional on salary"
+    ]
+  },
+  {
+    "dimension": "Risk Mitigation Strategy",
+    "current_value": "Balance value proposition with flexibility",
+    "other_values": [
+      "Prioritize salary over risk",
+      "Avoid direct salary mention",
+      "Frame as an inquiry, not a demand"
+    ]
+  }
+]

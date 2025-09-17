@@ -33,12 +33,12 @@ const AnchorBuilder = () => {
         const loadAnchorData = async () => {
             try {
                 if (anchorContent.personaJsonPath) {
-                    const personaResponse = await axios.get(`http://localhost:3001/user-data/${userName}/${anchorContent.personaJsonPath.split('/').slice(-2).join('/')}`);
+                    const personaResponse = await axios.get(`http://localhost:3001/user-data/${userName}/PersonaAnchor/${anchorContent.personaJsonPath.split('\\').pop().split('/').pop()}`);
                     setPersonaData(personaResponse.data);
                     console.log('Loaded persona data:', personaResponse.data);
                 }
                 if (anchorContent.situationJsonPath) {
-                    const situationResponse = await axios.get(`http://localhost:3001/user-data/${userName}/${anchorContent.situationJsonPath.split('/').slice(-2).join('/')}`);
+                    const situationResponse = await axios.get(`http://localhost:3001/user-data/${userName}/SituationAnchor/${anchorContent.situationJsonPath.split('\\').pop().split('/').pop()}`);
                     setSituationData(situationResponse.data);
                     console.log('Loaded situation data:', situationResponse.data);
                 }
@@ -131,7 +131,7 @@ const AnchorBuilder = () => {
                 <Col span={12} style={{ height: '100%' ,display: 'flex', flexDirection: 'column'}}>
                     <Card bordered style={{ width: '100%', minHeight: '700px'}} title="Persona Anchor">
                         <div style={{ textAlign: 'center', marginBottom: '10px' ,borderBottom: '1px solid #eee', paddingBottom: '10px'}}>
-                        <img src={anchorContent?.personaImagePath ? `http://localhost:3001/user-data/${userName}/PersonaAnchor/${anchorContent.personaImagePath.split('/').pop()}` : ''} alt="Persona" style={{ width: '600px', height: '300px', objectFit: 'cover', display: 'block', margin: '0 auto' }} />
+                        <img src={anchorContent?.personaImagePath ? `http://localhost:3001/user-data/${userName}/PersonaAnchor/${anchorContent.personaImagePath.split('\\').pop().split('/').pop()}` : ''} alt="Persona" style={{ width: '600px', height: '300px', objectFit: 'cover', display: 'block', margin: '0 auto' }} />
                         <Button 
                             color="primary" 
                             variant="outlined" 
@@ -167,7 +167,7 @@ const AnchorBuilder = () => {
                 <Col span={12} style={{ height: '100%' ,display: 'flex', flexDirection: 'column'}}>
                     <Card bordered style={{ width: '100%', minHeight: '700px'}} title="Situation Anchor">
                         <div style={{ textAlign: 'center', marginBottom: '10px' ,borderBottom: '1px solid #eee', paddingBottom: '10px'}}>
-                        <img src={anchorContent?.situationImagePath ? `http://localhost:3001/user-data/${userName}/SituationAnchor/${anchorContent.situationImagePath.split('/').pop()}` : ''} alt="Situation" style={{ width: '600px', height: '300px', objectFit: 'cover', display: 'block', margin: '0 auto' }} />
+                        <img src={anchorContent?.situationImagePath ? `http://localhost:3001/user-data/${userName}/SituationAnchor/${anchorContent.situationImagePath.split('\\').pop().split('/').pop()}` : ''} alt="Situation" style={{ width: '600px', height: '300px', objectFit: 'cover', display: 'block', margin: '0 auto' }} />
                         <Button 
                             color="primary" 
                             variant="outlined" 

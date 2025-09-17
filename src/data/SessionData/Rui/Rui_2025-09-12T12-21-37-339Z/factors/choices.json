@@ -1,0 +1,93 @@
+{
+  "affiliation": {
+    "id": "affiliation",
+    "select_type": "single",
+    "source": "Persona",
+    "title": "Affiliation (Warmth / Friendliness)",
+    "Category": "Relationship between sender and receiver",
+    "options": [
+      {
+        "value": "Hostile",
+        "type": "user-defined"
+      }
+    ]
+  },
+  "communication_purpose": {
+    "id": "communication_purpose",
+    "select_type": "multiple",
+    "source": "Situation",
+    "title": "Communication Purpose",
+    "Category": "Communication Context",
+    "options": [
+      {
+        "value": "make him empathy of my situation while not be under pressure",
+        "type": "user-defined"
+      }
+    ]
+  },
+  "emotion_to_convey": {
+    "id": "emotion_to_convey",
+    "select_type": "multiple",
+    "source": "Situation",
+    "title": "You want the receiver to feel you are",
+    "Category": "Risk Mitigation",
+    "options": [
+      {
+        "value": "cautious, just attemps to ask possibilities",
+        "type": "user-defined"
+      }
+    ]
+  },
+  "familiarity": {
+    "id": "familiarity",
+    "select_type": "single",
+    "source": "Persona",
+    "title": "Familiarity",
+    "Category": "Relationship between sender and receiver",
+    "options": [
+      {
+        "value": "we are familiar and talk a lot so do not be too professional or cold",
+        "type": "user-defined"
+      }
+    ]
+  },
+  "power_difference": {
+    "id": "power_difference",
+    "select_type": "single",
+    "source": "Persona",
+    "title": "Power, resource, status, hierarchy difference",
+    "Category": "Relationship between sender and receiver",
+    "options": [
+      {
+        "value": "Receiver is higher",
+        "type": "user-defined"
+      }
+    ]
+  },
+  "relationship_needs": {
+    "id": "relationship_needs",
+    "select_type": "single",
+    "source": "Persona",
+    "title": "Needs for Maintaining relationship",
+    "Category": "Relationship between sender and receiver",
+    "options": [
+      {
+        "value": "need to maintain relationship regardless of results",
+        "type": "user-defined"
+      }
+    ]
+  },
+  "emotion_to_avoid": {
+    "id": "emotion_to_avoid",
+    "select_type": "multiple",
+    "source": "Situation",
+    "title": "You want to avoid the receiver from feeling you are",
+    "Category": "Risk Mitigation",
+    "options": [
+      {
+        "value": "avoid feeling I am poor or begging",
+        "type": "user-defined"
+      }
+    ]
+  }
+}

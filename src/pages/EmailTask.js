@@ -148,6 +148,7 @@ const FirstPage = () => {
     const [factorData, setFactorData] = useState([]);
     const [selectedValues, setSelectedValues] = useState({}); // To track selected values for each factor
     const [selectedFactors, setSelectedFactors] = useState({}); // To track which factors are selected
+    const [userDefinedOptions, setUserDefinedOptions] = useState({}); // To track user-defined options for each factor
     const [anchorData, setAnchorData] = useState({ persona: [], situation: [] });
     const [showAnchors, setShowAnchors] = useState(false);
     const [selectedPersona, setSelectedPersona] = useState(null);
@@ -169,36 +170,14 @@ const FirstPage = () => {
         setAnchorsSkipped(false);
         setApplyingAnchors(false);
         setHasAppliedAnchors(false);
+        setUserDefinedOptions({}); // Reset user-defined options
     }, [globalUsername]);
 
     // Initialize default selections when factorData is loaded
     useEffect(() => {
         if (Object.keys(factorData).length > 0) {
-            const defaultSelectedFactors = {};
-            const defaultSelectedValues = {};
-            
-            Object.entries(factorData).forEach(([category, factors]) => {
-                // Default select the first factor in each category
-                if (factors.length > 0) {
-                    const firstFactor = factors[0];
-                    defaultSelectedFactors[firstFactor.id] = true;
-                    
-                    // Set default option for the selected factor
-                    if (firstFactor.options && firstFactor.options.length > 0) {
-                        const validOptions = firstFactor.options.filter(option => option && option.value !== undefined);
-                        if (validOptions.length > 0) {
-                            if (firstFactor.select_type === 'single') {
-                                defaultSelectedValues[firstFactor.id] = validOptions[0].value;
-                            } else {
-                                defaultSelectedValues[firstFactor.id] = [validOptions[0].value];
-                            }
-                        }
-                    }
-                }
-            });
-            
-            setSelectedFactors(defaultSelectedFactors);
-            setSelectedValues(defaultSelectedValues);
+            // No default selections - let users choose manually
+            // setSelectedFactors and setSelectedValues will remain empty initially
         }
     }, [factorData]);
 
@@ -215,16 +194,19 @@ const FirstPage = () => {
                     return newValues;
                 });
             } else {
-                // If checking a factor, set default option
+                // If checking a factor, set default option only if none is selected
                 const factor = Object.values(factorData).flat().find(f => f.id === factorId);
                 if (factor && factor.options && factor.options.length > 0) {
                     const validOptions = factor.options.filter(option => option && option.value !== undefined);
-                    if (validOptions.length > 0) {
+                    const userOptions = userDefinedOptions[factorId] || [];
+                    const allOptions = [...validOptions, ...userOptions];
+                    
+                    if (allOptions.length > 0) {
                         setSelectedValues(prevValues => ({
                             ...prevValues,
                             [factorId]: factor.select_type === 'single' 
-                                ? validOptions[0].value 
-                                : [validOptions[0].value]
+                                ? allOptions[0].value 
+                                : [allOptions[0].value]
                         }));
                     }
                 }
@@ -263,10 +245,7 @@ const FirstPage = () => {
             if (isSelected) {
                 // Remove the option if it's already selected
                 newValues = currentValues.filter(v => v !== option.value);
-                // Ensure at least one option is selected
-                if (newValues.length === 0) {
-                    newValues = [validFactorOptions[0].value];
-                }
+                // For multiple selection, allow empty selection
             } else {
                 // Add the option if it's not selected
                 newValues = [...currentValues, option.value];
@@ -286,10 +265,88 @@ const FirstPage = () => {
 
     const [loading, setLoading] = useState(false);
 
+    // Save current selections as default for future use
+    const handleSaveAsDefault = () => {
+        const defaultData = {
+            selectedFactors: selectedFactors,
+            selectedValues: selectedValues,
+            userDefinedOptions: userDefinedOptions,
+            timestamp: new Date().toISOString()
+        };
+        
+        // Save to localStorage for persistence
+        localStorage.setItem('emailTask_defaultData', JSON.stringify(defaultData));
+        
+        console.log('Saved current selections as default:', defaultData);
+        
+        // Optional: Show a success message to user
+        // You could add a toast notification here if you have one available
+        alert('Current selections saved as default!');
+    };
+
+    // Apply previously saved default values
+    const handleApplyDefaultValues = () => {
+        try {
+            const savedData = localStorage.getItem('emailTask_defaultData');
+            
+            if (savedData) {
+                const defaultData = JSON.parse(savedData);
+                
+                // Apply the saved data
+                setSelectedFactors(defaultData.selectedFactors || {});
+                setSelectedValues(defaultData.selectedValues || {});
+                setUserDefinedOptions(defaultData.userDefinedOptions || {});
+                
+                console.log('Applied default values:', defaultData);
+                alert(`Applied default values saved on ${new Date(defaultData.timestamp).toLocaleString()}`);
+            } else {
+                console.log('No default data found');
+                alert('No default data found. Please save some selections first using "Save as Default".');
+            }
+        } catch (error) {
+            console.error('Error applying default values:', error);
+            alert('Error loading default values. Please try saving new defaults.');
+        }
+    };
+
+    // Clear all current selections
+    const handleClearAll = () => {
+        setSelectedFactors({});
+        setSelectedValues({});
+        setUserDefinedOptions({});
+        
+        // Also clear any input fields
+        const inputKeys = Object.keys(selectedValues).filter(key => key.startsWith('input_'));
+        const clearedInputs = {};
+        inputKeys.forEach(key => {
+            clearedInputs[key] = '';
+        });
+        setSelectedValues(prev => ({ ...clearedInputs }));
+        
+        console.log('Cleared all selections');
+        alert('All selections cleared!');
+    };
+
     const handleApplyAnchors = async () => {
         setApplyingAnchors(true);
         try {
             const promises = [];
+            
+            // Read default factor data from localStorage
+            let defaultFactor = null;
+            try {
+                const savedData = localStorage.getItem('emailTask_defaultData');
+                if (savedData) {
+                    const defaultData = JSON.parse(savedData);
+                    defaultFactor = JSON.stringify({
+                        selectedFactors: defaultData.selectedFactors || {},
+                        selectedValues: defaultData.selectedValues || {},
+                        userDefinedOptions: defaultData.userDefinedOptions || {}
+                    });
+                }
+            } catch (error) {
+                console.error('Error reading default factor data:', error);
+            }
             
             // Call persona anchor adaptation if persona is selected
             if (selectedPersona !== null && anchorData.persona[selectedPersona]) {
@@ -306,7 +363,8 @@ const FirstPage = () => {
                 const situationPromise = axios.post('http://localhost:3001/situation-anchor-adaptation', {
                     userName: globalUsername,
                     userTask: userTask,
-                    selectedAnchor: anchorData.situation[selectedSituation]
+                    selectedAnchor: anchorData.situation[selectedSituation],
+                    defaultFactor: defaultFactor
                 });
                 promises.push(situationPromise);
             }
@@ -377,10 +435,12 @@ const FirstPage = () => {
         console.log('Selected Values:', selectedValues);
         console.log('Selected Factors:', selectedFactors);
         
-        // Only include factor choices for selected factors
+        // Only include factor choices for selected factors with actual values
         const factorChoices = Object.entries(selectedValues).reduce((acc, [factorId, selectedOption]) => {
-          // Only include if the factor is selected
-          if (selectedFactors[factorId]) {
+          // Only include if the factor is selected AND has actual values
+          if (selectedFactors[factorId] && selectedOption && 
+              ((Array.isArray(selectedOption) && selectedOption.length > 0) || 
+               (!Array.isArray(selectedOption) && selectedOption.trim()))) {
             const factor = Object.values(factorData).flat().find(f => f.id === factorId);
             if (factor) {
               acc[factorId] = {
@@ -581,12 +641,14 @@ const FirstPage = () => {
                                                 <Col span={12} key={category}>
                                                     <Card title={category} variant="borderless">
                                                         <Collapse 
-                                                            defaultActiveKey={factors.length > 0 ? [factors[0].id] : []} 
+                                                            defaultActiveKey={[]} 
                                                             collapsible="icon"
                                                         >
                                                             {factors.map((factor, index) => {
                                                                 // Ensure factor.options exists and filter out invalid options
-                                                                const validOptions = factor.options?.filter(option => option && option.value !== undefined) || [];
+                                                                const predefinedOptions = factor.options?.filter(option => option && option.value !== undefined) || [];
+                                                                const userOptions = userDefinedOptions[factor.id] || [];
+                                                                const validOptions = [...predefinedOptions, ...userOptions];
                                                                 const isFactorSelected = selectedFactors[factor.id] || false;
                                                                 
                                                                 return (
@@ -613,11 +675,13 @@ const FirstPage = () => {
                                                                                     fontSize: '12px' 
                                                                                 }}>
                                                                                     {isFactorSelected ? (
-                                                                                        factor.select_type === 'single'
-                                                                                            ? selectedValues[factor.id] || (validOptions.length > 0 ? validOptions[0].value : 'N/A')
-                                                                                            : (selectedValues[factor.id] || (validOptions.length > 0 ? [validOptions[0].value] : ['N/A'])).length > 1
-                                                                                                ? `${(selectedValues[factor.id] || (validOptions.length > 0 ? [validOptions[0].value] : ['N/A']))[0]}...`
-                                                                                                : (selectedValues[factor.id] || (validOptions.length > 0 ? [validOptions[0].value] : ['N/A']))[0]
+                                                                                        selectedValues[factor.id] ? (
+                                                                                            factor.select_type === 'single'
+                                                                                                ? selectedValues[factor.id]
+                                                                                                : selectedValues[factor.id].length > 1
+                                                                                                    ? `${selectedValues[factor.id][0]}...`
+                                                                                                    : selectedValues[factor.id][0]
+                                                                                        ) : 'No selection'
                                                                                     ) : 'Not selected'}
                                                                                 </div>
                                                                             </div>
@@ -628,7 +692,7 @@ const FirstPage = () => {
                                                                             {factor.select_type === 'single' ? (
                                                                                 <Radio.Group
                                                                                     onChange={e => handleSingleChange(factor.id, e.target.value)}
-                                                                                    value={selectedValues[factor.id] || (validOptions.length > 0 ? validOptions[0].value : '')}
+                                                                                    value={selectedValues[factor.id] || undefined}
                                                                                     disabled={!isFactorSelected}
                                                                                 >
                                                                                     {validOptions.map(option => (
@@ -658,14 +722,33 @@ const FirstPage = () => {
                                                                                                         type="primary"
                                                                                                         onClick={() => {
                                                                                                             if (editValue.trim()) {
-                                                                                                                setFactorData(prev => {
-                                                                                                                    const updated = { ...prev };
-                                                                                                                    const categoryFactors = updated[factor.Category];
-                                                                                                                    const factorIndex = categoryFactors.findIndex(f => f.id === factor.id);
-                                                                                                                    const optionIndex = categoryFactors[factorIndex].options.findIndex(opt => opt.value === option.value);
-                                                                                                                    categoryFactors[factorIndex].options[optionIndex].value = editValue.trim();
-                                                                                                                    return updated;
-                                                                                                                });
+                                                                                                                // Check if this is a predefined option or user-defined option
+                                                                                                                const predefinedOptions = factor.options?.filter(opt => opt && opt.value !== undefined) || [];
+                                                                                                                const isPredefined = predefinedOptions.some(opt => opt.value === option.value);
+                                                                                                                
+                                                                                                                if (isPredefined) {
+                                                                                                                    // Update predefined option in factorData
+                                                                                                                    setFactorData(prev => {
+                                                                                                                        const updated = { ...prev };
+                                                                                                                        const categoryFactors = updated[factor.Category];
+                                                                                                                        const factorIndex = categoryFactors.findIndex(f => f.id === factor.id);
+                                                                                                                        const optionIndex = categoryFactors[factorIndex].options.findIndex(opt => opt.value === option.value);
+                                                                                                                        categoryFactors[factorIndex].options[optionIndex].value = editValue.trim();
+                                                                                                                        return updated;
+                                                                                                                    });
+                                                                                                                } else {
+                                                                                                                    // Update user-defined option
+                                                                                                                    setUserDefinedOptions(prev => {
+                                                                                                                        const updated = { ...prev };
+                                                                                                                        const userOptions = updated[factor.id] || [];
+                                                                                                                        const optionIndex = userOptions.findIndex(opt => opt.value === option.value);
+                                                                                                                        if (optionIndex !== -1) {
+                                                                                                                            userOptions[optionIndex].value = editValue.trim();
+                                                                                                                        }
+                                                                                                                        return { ...updated, [factor.id]: userOptions };
+                                                                                                                    });
+                                                                                                                }
+                                                                                                                
                                                                                                                 setSelectedValues(prev => {
                                                                                                                     const currentValues = prev[factor.id] || [];
                                                                                                                     const updatedValues = currentValues.map(v => v === option.value ? editValue.trim() : v);
@@ -683,11 +766,7 @@ const FirstPage = () => {
                                                                                                 <div key={optionKey} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                                                                     <Tag.CheckableTag
                                                                                                         checked={
-                                                                                                            isFactorSelected && (
-                                                                                                                selectedValues[factor.id]?.length > 0
-                                                                                                                    ? selectedValues[factor.id].includes(option.value)
-                                                                                                                    : option.value === validOptions[0].value
-                                                                                                            )
+                                                                                                            isFactorSelected && selectedValues[factor.id]?.includes(option.value)
                                                                                                         }
                                                                                                         onChange={() => handleMultipleChange(factor.id, option, validOptions)}
                                                                                                         style={{ 
@@ -738,20 +817,17 @@ const FirstPage = () => {
                                                                                         // Clear the input
                                                                                         setSelectedValues(prev => ({ ...prev, [`input_${factor.id}`]: '' }));
                                                                                         
-                                                                                        // Add the new option to factor data
-                                                                                        setFactorData(prev => {
-                                                                                            const updatedFactors = { ...prev };
-                                                                                            const factorIndex = updatedFactors[category].findIndex(f => f.id === factor.id);
-                                                                                            if (factorIndex !== -1) {
-                                                                                                const existingOptions = updatedFactors[category][factorIndex].options?.map(option => option.value) || [];
-                                                                                                if (!existingOptions.includes(newOption.value)) {
-                                                                                                    if (!updatedFactors[category][factorIndex].options) {
-                                                                                                        updatedFactors[category][factorIndex].options = [];
-                                                                                                    }
-                                                                                                    updatedFactors[category][factorIndex].options.push(newOption);
-                                                                                                }
+                                                                                        // Add the new option to user-defined options
+                                                                                        setUserDefinedOptions(prev => {
+                                                                                            const existingUserOptions = prev[factor.id] || [];
+                                                                                            const existingValues = existingUserOptions.map(option => option.value);
+                                                                                            if (!existingValues.includes(newOption.value)) {
+                                                                                                return {
+                                                                                                    ...prev,
+                                                                                                    [factor.id]: [...existingUserOptions, newOption]
+                                                                                                };
                                                                                             }
-                                                                                            return updatedFactors;
+                                                                                            return prev;
                                                                                         });
                                                                                         
                                                                                         // Update selected values
@@ -781,18 +857,48 @@ const FirstPage = () => {
                                 </div>
                             </div>
                             )}
-                            <Button 
-                            type="primary" 
-                            onClick={handleGenerateDraft} 
-                            size="large"
-                            style={{
-                                margin: '0 auto',
-                                display: 'block',
-                                marginTop: '16px',
-                            }}
-                            >
-                            Generate Email Draft
-                            </Button>
+                            <div style={{ display: 'flex', justifyContent: 'center', gap: '12px', marginTop: '16px', flexWrap: 'wrap' }}>
+                                <Button 
+                                    onClick={handleSaveAsDefault}
+                                    size="large"
+                                    style={{
+                                        backgroundColor: '#e6f7ff',
+                                        borderColor: '#91d5ff',
+                                        color: '#0958d9'
+                                    }}
+                                >
+                                    💾 Save as Default
+                                </Button>
+                                <Button 
+                                    onClick={handleApplyDefaultValues}
+                                    size="large"
+                                    style={{
+                                        backgroundColor: '#f6ffed',
+                                        borderColor: '#b7eb8f',
+                                        color: '#389e0d'
+                                    }}
+                                >
+                                    📋 Apply Anchor Values
+                                </Button>
+                                <Button 
+                                    onClick={handleClearAll}
+                                    size="large"
+                                    style={{
+                                        backgroundColor: '#fff2f0',
+                                        borderColor: '#ffccc7',
+                                        color: '#ff4d4f'
+                                    }}
+                                >
+                                    🗑️ Clear All
+                                </Button>
+                                <Button 
+                                    type="primary" 
+                                    onClick={handleGenerateDraft} 
+                                    size="large"
+                                >
+                                    Generate Email Draft
+                                </Button>
+                            </div>
                         </div>
                     )}
                 </div>
