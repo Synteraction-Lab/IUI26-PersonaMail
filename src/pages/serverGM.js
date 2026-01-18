@@ -6,9 +6,7 @@ const path = require('path');
 const app = express();
 const port = 3001;
 
-const geminiApiKey = 'AIzaSyDmFDKI1XPwWO2EhqdRQZkTSl8N3ZfUCeM'; // Gemini API Key
-//AIzaSyDim8J8xzRTmPl1ve98-gQq8UueGZhH9s8
-
+const geminiApiKey = 'ENTER YOUR API KEY HERE'; // Gemini API Key
 const geminiApiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
 
 const factorList = require('../../public/data/PredefinedData/factor_list.json'); // 引用 factor_list.json
@@ -278,7 +276,7 @@ async function sendRequestToGemini(prompt, options = {}) {
                 }],
                 generationConfig: {
                     thinkingConfig: {
-                        thinkingBudget: enableThinking ? 2000 : 0 
+                        thinkingBudget: enableThinking ? 1000 : 0 
                     }
                 }
             };
@@ -689,10 +687,25 @@ app.post('/save-factor-choices', (req, res) => {
     }
 });
 
+// Function to filter factorChoices into simple id-value pairs
+function filterFactorChoices(factorChoices) {
+    const filtered = {};
+    
+    for (const [factorId, factorData] of Object.entries(factorChoices)) {
+        if (factorData.options && factorData.options.length > 0) {
+            // Extract the first option's value (since most factors seem to have single selection)
+            filtered[factorId] = factorData.options[0].value;
+        }
+    }
+    
+    return filtered;
+}
+
 
 
 app.post('/generate-first-draft', async (req, res) => {
     const { userTask, factorChoices } = req.body;
+    // Debug: Print variable type and value of factorChoices
 
     if (!userTask || !factorChoices) {
         return res.status(400).json({ error: 'userTask and factorChoices are required' });
@@ -707,13 +720,13 @@ app.post('/generate-first-draft', async (req, res) => {
         console.error('Failed to load 4first_draft_composer.prompt.md:', error);
         return res.status(500).json({ error: 'Failed to load prompt template' });
     }
-
+    const filteredFactorChoices = filterFactorChoices(factorChoices);
     const prompt = promptTemplate
         .replace('{{USER_TASK}}', userTask)
-        .replace('{{FACTOR_CHOICES}}', JSON.stringify(factorChoices, null, 2));
+        .replace('{{FACTOR_CHOICES}}', JSON.stringify(filteredFactorChoices, null, 2));
 
     try {
-        const draftContent = await sendRequestToGemini(prompt, { enableThinking: false, timeout: 120000 }); // 2 minutes timeout
+        const draftContent = await sendRequestToGemini(prompt, { enableThinking: true, timeout: 120000 }); // 2 minutes timeout
 
         if (!draftContent) {
             throw new Error('AI response is empty');
@@ -768,10 +781,10 @@ app.post('/generate-anchor-email-draft', async (req, res) => {
     // Use first two samples or empty strings if not available
     const previousEmail1 = writingSamples[0] || '';
     const previousEmail2 = writingSamples[1] || '';
-
+    const filteredFactorChoices = filterFactorChoices(factorChoices)
     const prompt = promptTemplate
       .replace('{{USER_TASK}}', userTask)
-      .replace('{{FACTOR_CHOICES}}', JSON.stringify(factorChoices, null, 2))
+      .replace('{{FACTOR_CHOICES}}', JSON.stringify(filteredFactorChoices, null, 2))
       .replace('{{PREVIOUS_EMAIL1}}', previousEmail1)
       .replace('{{PREVIOUS_EMAIL2}}', previousEmail2);
 
@@ -969,11 +982,11 @@ app.post('/content-expand', async (req, res) => {
         } catch (error) {
             console.warn('Could not load factor choices:', error);
         }
-
+        const filteredFactorChoices = filterFactorChoices(factorChoices)
         // Replace placeholders in the prompt
         const prompt = promptTemplate
             .replace('{{DRAFT_LATEST}}', draftLatest)
-            .replace('{{FACTOR_CHOICES}}', JSON.stringify(factorChoices, null, 2))
+            .replace('{{FACTOR_CHOICES}}', JSON.stringify(filteredFactorChoices, null, 2))
             .replace('{{SELECTED_CONTENT}}', selectedContent);
 
         const expandedContent = await sendRequestToGemini(prompt);
@@ -1025,11 +1038,11 @@ app.post('/content-shorten', async (req, res) => {
         } catch (error) {
             console.warn('Could not load factor choices:', error);
         }
-
+        const filteredFactorChoices = filterFactorChoices(factorChoices)
         // Replace placeholders in the prompt
         const prompt = promptTemplate
             .replace('{{DRAFT_LATEST}}', draftLatest)
-            .replace('{{FACTOR_CHOICES}}', JSON.stringify(factorChoices, null, 2))
+            .replace('{{FACTOR_CHOICES}}', JSON.stringify(filteredFactorChoices, null, 2))
             .replace('{{SELECTED_CONTENT}}', selectedContent);
 
         const shortenedContent = await sendRequestToGemini(prompt);
@@ -1081,11 +1094,11 @@ app.post('/save-manual-edit-tool', async (req, res) => {
             console.error('Failed to load 8manual_edit_analysis.prompt.md:', error);
             return res.status(500).json({ error: 'Failed to load prompt template' });
         }
-
+        const filteredFactorChoices = filterFactorChoices(factorChoices)
         // Replace placeholders in the prompt
         const prompt = promptTemplate
             .replace('{{USER_TASK}}', userTask)
-            .replace('{{FACTOR_CHOICES}}', JSON.stringify(factorChoices, null, 2))
+            .replace('{{FACTOR_CHOICES}}', JSON.stringify(filteredFactorChoices, null, 2))
             .replace('{{DRAFT_LATEST}}', draftLatest)
             .replace('{{USER_EDIT_REASON}}', userEditReason)
             .replace('{{COMPONENT_BEFORE_EDIT}}', JSON.stringify(componentBeforeEdit, null, 2))
@@ -1145,59 +1158,50 @@ app.post('/save-manual-edit-tool', async (req, res) => {
 
 // Regenerate Draft 接口
 app.post('/regenerate-draft', async (req, res) => {
-    const { taskId, userTask, factorChoices, intentCurrent, userName } = req.body;
+    const { taskId, userTask, userName } = req.body;
 
-    if (!taskId || !userTask || !factorChoices || !intentCurrent || !userName) {
-        return res.status(400).json({ error: 'Missing required fields in the request body' });
+    if (!userTask) {
+        return res.status(400).json({ error: 'userTask and factorChoices are required' });
     }
 
-    const promptPath = path.join(__dirname, '../../public/data/Prompts/email_regenerator.prompt.md');
-    const draftsPath = path.join(__dirname, '../public/data/SessionData', userName, taskId, 'drafts');
-    const latestDraftPath = path.join(draftsPath, 'latest.md');
-
+    const promptPath = path.join(__dirname, '../../public/data/Prompts/4first_draft_composer.prompt.md');
     let promptTemplate;
+
+    const factorChoicesPath = path.join(__dirname, '../data/SessionData', userName, taskId, 'factors', 'choices.json');
+    
+    
+    let factorChoices;
     try {
-        // 读取 prompt 文件
+        factorChoices = fs.readFileSync(factorChoicesPath, 'utf-8');
+    } catch (error) {
+        console.error('Failed to read factor choices:', error);
+        return res.status(500).json({ error: 'Failed to read factor choices' });
+    }
+
+
+
+    try {
         promptTemplate = fs.readFileSync(promptPath, 'utf-8');
     } catch (error) {
-        console.error('Failed to load email_regenerator.prompt.md:', error);
+        console.error('Failed to load 4first_draft_composer.prompt.md:', error);
         return res.status(500).json({ error: 'Failed to load prompt template' });
     }
-
-    // 替换占位符生成 prompt
+ 
     const prompt = promptTemplate
         .replace('{{USER_TASK}}', userTask)
-        .replace('{{DRAFT_LATEST}}', fs.existsSync(latestDraftPath) ? fs.readFileSync(latestDraftPath, 'utf-8') : '')
-        .replace('{{FACTOR_CHOICES}}', JSON.stringify(factorChoices, null, 2))
-        .replace('{{INTENT_CURRENT}}', JSON.stringify(intentCurrent, null, 2))
-        .replace('{{INTENT_HISTORY}}', '[]'); // 可扩展为实际历史记录
+        .replace('{{FACTOR_CHOICES}}', JSON.stringify(factorChoices, null, 2));
 
     try {
-        // 调用 AI 服务生成草稿
-        const draftContent = await sendRequestToGemini(prompt);
+        const draftContent = await sendRequestToGemini(prompt, { enableThinking: true, timeout: 120000 }); // 2 minutes timeout
 
         if (!draftContent) {
             throw new Error('AI response is empty');
         }
 
-        // 确保 drafts 目录存在
-        if (!fs.existsSync(draftsPath)) {
-            fs.mkdirSync(draftsPath, { recursive: true });
-        }
-
-        // 保存到 latest.md
-        fs.writeFileSync(latestDraftPath, draftContent.trim(), 'utf-8');
-
-        // 按次序创建类似 01_draft.md 的文件
-        const draftFiles = fs.readdirSync(draftsPath).filter((file) => file.match(/^\d+_draft\.md$/));
-        const nextDraftNumber = draftFiles.length + 1;
-        const nextDraftPath = path.join(draftsPath, `${String(nextDraftNumber).padStart(2, '0')}_draft.md`);
-        fs.writeFileSync(nextDraftPath, draftContent.trim(), 'utf-8');
-
-        res.status(200).json({ message: 'Draft regenerated successfully.', draft: draftContent.trim() });
+        res.json({ draft: draftContent.trim() });
     } catch (error) {
-        console.error('Error regenerating draft:', error);
-        res.status(500).json({ error: 'Failed to regenerate draft.' });
+        console.error('Error generating first draft:', error);
+        res.status(500).json({ error: 'Failed to generate first draft' });
     }
 });
 
@@ -1391,7 +1395,7 @@ app.post('/intent-analyzer-new', async (req, res) => {
         console.error('Failed to read latest draft:', error);
         return res.status(500).json({ error: 'Failed to read latest draft' });
     }
-
+    
     const prompt = promptTemplate
         .replace('{{USER_TASK}}', userTask)
         .replace('{{FACTOR_CHOICES}}', factorChoices)
@@ -1441,7 +1445,7 @@ app.post('/intent-analyzer-new', async (req, res) => {
 
 // Persona Anchor Adaptation interface
 app.post('/persona-anchor-adaptation', async (req, res) => {
-    const { userName, userTask, selectedAnchor } = req.body;
+    const { userName, userTask, selectedAnchor, defaultFactor} = req.body;
 
     if (!userName || !userTask || !selectedAnchor) {
         return res.status(400).json({ error: 'userName, userTask, and selectedAnchor are required' });
@@ -1482,7 +1486,8 @@ app.post('/persona-anchor-adaptation', async (req, res) => {
         const prompt = promptTemplate
             .replace('{{PREVIOUS_USER_TASK}}', previousUserTask)
             .replace('{{USER_TASK}}', userTask)
-            .replace('{{PREVIOUS_PERSONA_FACTORS}}', JSON.stringify(previousPersonaFactors, null, 2));
+            .replace('{{PREVIOUS_PERSONA_FACTORS}}',defaultFactor)
+            //.replace('{{PREVIOUS_PERSONA_FACTORS}}', JSON.stringify(previousPersonaFactors, null, 2));
 
         const responseText = await sendRequestToGemini(prompt);
 
@@ -1693,19 +1698,28 @@ app.post('/regenerate-anchor', async (req, res) => {
 
 app.post('/intent-change-rewriter', async (req, res) => {
     const {
+        userName,
+        taskId,
         userTask,
-        factorChoices,
+
         draftLatest,
         componentCurrent,
         intentSelected,
         intentOthers
     } = req.body;
+    const factorChoicesPath = path.join(__dirname, '../data/SessionData', userName, taskId, 'factors', 'choices.json');
+    try {
+    factorChoices = JSON.parse(fs.readFileSync(factorChoicesPath, 'utf-8'));
+        } catch (error) {
+            console.warn('Could not load factor choices:', error);
+        }
 
     if (!userTask || !factorChoices || !draftLatest || !componentCurrent || !intentSelected || !intentOthers) {
         return res.status(400).json({ error: 'Missing required fields in the request body' });
     }
 
     const promptPath = path.join(__dirname, '../../public/data/Prompts/7intent_change_rewriter.prompt.md');
+
     let promptTemplate;
     try {
         promptTemplate = fs.readFileSync(promptPath, 'utf-8');
@@ -1713,10 +1727,10 @@ app.post('/intent-change-rewriter', async (req, res) => {
         console.error('Failed to load 7intent_change_rewriter.prompt.md:', error);
         return res.status(500).json({ error: 'Failed to load prompt template' });
     }
-
+    const filteredFactorChoices = filterFactorChoices(factorChoices)
     const prompt = promptTemplate
         .replace('{{USER_TASK}}', userTask)
-        .replace('{{FACTOR_CHOICES}}', JSON.stringify(factorChoices, null, 2))
+        .replace('{{FACTOR_CHOICES}}', JSON.stringify(filteredFactorChoices, null, 2))
         .replace('{{DRAFT_LATEST}}', draftLatest)
         .replace('{{COMPONENT_CURRENT}}', componentCurrent)
         .replace('{{INTENT_SELECTED}}', JSON.stringify(intentSelected, null, 2))
@@ -1759,12 +1773,12 @@ app.post('/ai-generate-rewrite', async (req, res) => {
         // Load factor choices
         const factorChoicesPath = path.join(__dirname, '../data/SessionData', userName, taskId, 'factors', 'choices.json');
         const factorChoices = fs.existsSync(factorChoicesPath) ? JSON.parse(fs.readFileSync(factorChoicesPath, 'utf-8')) : {};
-
+        const filteredFactorChoices = filterFactorChoices(factorChoices)
         // Replace placeholders in the prompt
         const prompt = promptTemplate
             .replace('{{USER_TASK}}', userTask)
             .replace('{{DRAFT_LATEST}}', draftLatest)
-            .replace('{{FACTOR_CHOICES}}', JSON.stringify(factorChoices, null, 2))
+            .replace('{{FACTOR_CHOICES}}', JSON.stringify(filteredFactorChoices, null, 2))
             .replace('{{SELECTED_CONTENT}}', selectedContent)
             .replace('{{USER_PROMPT}}', userPrompt);
 

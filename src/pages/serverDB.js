@@ -7,7 +7,7 @@ const https = require('https');
 const app = express();
 const port = 3002;
 
-const doubaoApiKey = '3476dfe5-ca59-470b-94d0-00c42a630460';
+const doubaoApiKey = 'ENTER YOUR KEY HERE';
 const doubaoApiEndpoint = 'https://ark.cn-beijing.volces.com/api/v3/images/generations';
 
 app.use(cors());

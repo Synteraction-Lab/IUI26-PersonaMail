@@ -1,27 +1,58 @@
-# Getting Started
+# IUI26-PersonaMail
 
-## Clone the project from the repository
+This project is part of the Synteraction Lab's research. It explores generative AI applications in email communication.
 
-```git clone 
+## Acknowledgments
+This project was originally developed by **Rachel ([@RachelR1001](https://github.com/RachelR1001))**. We sincerely acknowledge her foundational work, system architecture design, and significant contributions to the initial codebase.
 
-## Open the project directory in your terminal
+---
 
-## Install dependencies
-```npm install```
+## Getting Started
 
-## Run the project
-```npm start```
-
-## Run the server
+### 1. Clone the project
+```bash
+git clone [https://github.com/Synteraction-Lab/IUI26-PersonaMail.git](https://github.com/Synteraction-Lab/IUI26-PersonaMail.git)
+cd IUI26-PersonaMail
 
 ```
-cd cd src/pages
-node serverGM.js
-node serverDB.js
+
+### 2. Install Dependencies
+
+```bash
+npm install
+
 ```
-The server urls are [http://localhost:3001](http://localhost:3001) 
-and [http://localhost:3002](http://localhost:3002) 
+### 3. Configure API Keys
 
-## Open the pages in the browser
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+You must manually add your Generative AI API keys in the following files:
 
+* **In `serverGM.js`**: Replace `'ENTER YOUR API KEY HERE'` with your **Gemini API Key**.
+* **In `serverDB.js`**: Replace `'ENTER YOUR KEY HERE'` with your **Doubao API Key**.
+
+### 4. Run the Project
+
+You need to open **three independent terminal windows** to run the full system:
+
+* **Terminal 1 (Frontend):**
+    ```bash
+    npm start
+    ```
+
+* **Terminal 2 (Gemini Server):**
+    ```bash
+    node serverGM.js
+    ```
+
+* **Terminal 3 (Database/Doubao Server):**
+    ```bash
+    node serverDB.js
+    ```
+
+
+
+---
+
+## Known Issues & Usage Notes
+
+* **Factor Settings Bug:** To test the *Persona* and *Situation Anchor* functions, you must **explicitly click "Save"** in the Factor Exploration Panel after entering your values.
+* This is a known synchronization bug and will be fixed in the next version. However, manually saving does not affect the full functionality or experience of the system.

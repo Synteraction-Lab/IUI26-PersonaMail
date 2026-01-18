@@ -7,6 +7,10 @@ import {
 import styles from "@chatscope/chat-ui-kit-styles/dist/default/styles.min.css";
 import avatarImg from '../Avatar.png'; // 引入图片
 import avatarImg_u from '../avatarUser.png'; // 引入图片
+import relationshipIcon from '../relationship.png'; // 引入图片
+import communicationIcon from '../commnuication.png'; // 引入图片
+import demongraphyIcon from '../demography.png'; // 引入图片
+import ristMitigationIcon from '../ristMitigation.png'; // 引入图片
 import axios from 'axios';
 
 import {
@@ -353,7 +357,8 @@ const FirstPage = () => {
                 const personaPromise = axios.post('http://localhost:3001/persona-anchor-adaptation', {
                     userName: globalUsername,
                     userTask: userTask,
-                    selectedAnchor: anchorData.persona[selectedPersona]
+                    selectedAnchor: anchorData.persona[selectedPersona],
+                    defaultFactor: defaultFactor
                 });
                 promises.push(personaPromise);
             }
@@ -374,38 +379,63 @@ const FirstPage = () => {
             
             console.log('Anchor adaptation responses:', responses.map(r => r.data));
             
-            // Process responses and add to factorData
-            const newFactors = [];
+            // Process responses and update existing factors with adapted options
             const newSelectedFactors = {};
             const newSelectedValues = {};
+            const adaptedOptions = {};
             
             responses.forEach(response => {
                 if (response.data.adaptedFactors) {
-                    response.data.adaptedFactors.forEach(factor => {
-                        newFactors.push(factor);
-                        newSelectedFactors[factor.id] = true;
-                        if (factor.options && factor.options.length > 0) {
-                            const validOptions = factor.options.filter(option => option && option.value !== undefined);
+                    response.data.adaptedFactors.forEach(adaptedFactor => {
+                        // Store adapted options for existing factors
+                        if (adaptedFactor.options && adaptedFactor.options.length > 0) {
+                            const validOptions = adaptedFactor.options.filter(option => option && option.value !== undefined);
                             if (validOptions.length > 0) {
-                                newSelectedValues[factor.id] = factor.select_type === 'single' 
-                                    ? validOptions[0].value 
-                                    : [validOptions[0].value];
+                                // Mark adapted options with a type to distinguish them
+                                const markedOptions = validOptions.map(option => ({
+                                    ...option,
+                                    type: 'adapted'
+                                }));
+                                adaptedOptions[adaptedFactor.id] = markedOptions;
+                                
+                                // Auto-select this factor and set default values
+                                newSelectedFactors[adaptedFactor.id] = true;
+                                newSelectedValues[adaptedFactor.id] = adaptedFactor.select_type === 'single' 
+                                    ? markedOptions[0].value 
+                                    : [markedOptions[0].value];
                             }
                         }
                     });
                 }
             });
             
-            // Update factorData with new factors
-            if (newFactors.length > 0) {
+            // Update existing factors with adapted options instead of creating new factors
+            if (Object.keys(adaptedOptions).length > 0) {
                 setFactorData(prev => {
                     const updated = { ...prev };
-                    newFactors.forEach(factor => {
-                        if (!updated[factor.Category]) {
-                            updated[factor.Category] = [];
+                    
+                    // Find and update existing factors with adapted options
+                    Object.entries(adaptedOptions).forEach(([factorId, newOptions]) => {
+                        // Find the factor in the existing factorData
+                        for (const category in updated) {
+                            const factorIndex = updated[category].findIndex(factor => factor.id === factorId);
+                            if (factorIndex !== -1) {
+                                // Get existing options and their values
+                                const existingOptions = updated[category][factorIndex].options || [];
+                                const existingValues = existingOptions.map(opt => opt.value);
+                                
+                                // Filter out duplicate options before adding
+                                const uniqueNewOptions = newOptions.filter(newOpt => 
+                                    !existingValues.includes(newOpt.value)
+                                );
+                                
+                                // Add only unique adapted options to existing factor options
+                                updated[category][factorIndex].options = [...existingOptions, ...uniqueNewOptions];
+                                break;
+                            }
                         }
-                        updated[factor.Category].push(factor);
                     });
+                    
                     return updated;
                 });
                 
@@ -503,6 +533,21 @@ const FirstPage = () => {
     };
 
     const { TextArea } = Input;
+    // Function to get icon for category
+    const getCategoryIcon = (category) => {
+        switch (category) {
+            case 'Relationship between sender and receiver':
+                return relationshipIcon;
+            case 'Communication Context':
+                return communicationIcon;
+            case 'Demography':
+                return demongraphyIcon;
+            case 'Risk Mitigation':
+                return ristMitigationIcon;
+            default:
+                return null;
+        }
+    };
 
     useEffect(() => {
         // Fetch the factor list JSON dynamically
@@ -639,7 +684,21 @@ const FirstPage = () => {
                                         <Row gutter={[16, 16]} justify="space-between" style={{ width: '100%' }}>
                                             {Object.entries(factorData).map(([category, factors]) => (
                                                 <Col span={12} key={category}>
-                                                    <Card title={category} variant="borderless">
+                                                    <Card 
+                                                        title={
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                                {getCategoryIcon(category) && (
+                                                                    <img 
+                                                                        src={getCategoryIcon(category)} 
+                                                                        alt={category} 
+                                                                        style={{ width: '48px', height: '48px' }} 
+                                                                    />
+                                                                )}
+                                                                <span>{category}</span>
+                                                            </div>
+                                                        } 
+                                                        variant="borderless"
+                                                    >
                                                         <Collapse 
                                                             defaultActiveKey={[]} 
                                                             collapsible="icon"

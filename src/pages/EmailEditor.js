@@ -373,20 +373,12 @@ const EmailEditor = () => {
         try {
             setRegenerateLoading(true);
             
-            // Fetch factorChoices from current.json
-            const factorResponse = await axios.get(`http://localhost:3001/sessiondata/${globalTaskId}/intents/current.json`);
-            const factorChoices = factorResponse.data;
-            
-            // Get hasAppliedAnchors from location state
-            const hasAppliedAnchors = state?.hasAppliedAnchors || false;
-            
-            // Choose endpoint based on hasAppliedAnchors status
-            const endpoint = hasAppliedAnchors ? 'generate-anchor-email-draft' : 'generate-first-draft';
-            const requestData = hasAppliedAnchors 
-                ? { userTask: userTask, factorChoices: factorChoices, userName: globalUsername }
-                : { userTask: userTask, factorChoices: factorChoices };
-            
-            const response = await axios.post(`http://localhost:3001/${endpoint}`, requestData);
+            // Call the regenerate-draft endpoint with required parameters
+            const response = await axios.post('http://localhost:3001/regenerate-draft', {
+                taskId: globalTaskId,
+                userTask: userTask,
+                userName: globalUsername
+            });
             
             if (response.data) {
                 const newContent = response.data.draft || response.data;
@@ -517,7 +509,7 @@ const EmailEditor = () => {
 
         // 1. 新增：清除所有标记的函数
     const clearAllMarkers = () => {
-        try {
+        return safeEditorOperation(() => {
             if (!value || !Array.isArray(value)) {
                 console.warn('Invalid editor value for clearing markers');
                 return;
@@ -545,9 +537,7 @@ const EmailEditor = () => {
             
             setValue(cleanValue);
             setEditorKey(prev => prev + 1);
-        } catch (error) {
-            console.error('Error clearing markers:', error);
-        }
+        });
     };
     // Extract components using the component extractor
     const handleExtractComponents = async () => {
@@ -713,7 +703,15 @@ const EmailEditor = () => {
             console.warn('Invalid inputs for highlighting');
             return editorValue;
         }
-        
+        // Clear editor selection before applying highlighting to prevent path errors
+        try {
+            if (editor.selection) {
+                Transforms.deselect(editor);
+            }
+        } catch (error) {
+            console.warn('Could not clear editor selection:', error);
+        }
+
         // 获取该component的linkedIntents
         const combinedResult = combinedResults.find(result => result.id === componentId);
         const linkedIntents = combinedResult?.linkedIntents || [];
@@ -834,7 +832,9 @@ const EmailEditor = () => {
                 return existingChild ? {
                     hasDimensions: existingChild.hasDimensions,
                     linkedIntents: existingChild.linkedIntents,
-                    componentId: existingChild.componentId
+                    componentId: existingChild.componentId,
+                    isFirstTextNode: existingChild.isFirstTextNode
+
                 } : {};
             };
             
@@ -847,7 +847,7 @@ const EmailEditor = () => {
             
             if (highlightText) {
                 // 判断是否为第一个文本节点（用于显示dimension圆圈）
-                const isFirstTextNode = validStart === 0 && affectedNode === affectedNodes[0];
+                const isFirstTextNode = (affectedNode === affectedNodes[0]) && (validStart === 0) && (newChildren.length === 0);
                 
                 newChildren.push({ 
                     text: highlightText, 
@@ -855,8 +855,8 @@ const EmailEditor = () => {
                     componentId: componentId,
                     hasDimensions: linkedIntents.length > 0,
                     linkedIntents: linkedIntents,
-                    isFirstTextNode: isFirstTextNode,
-                    ...preserveExistingProps(highlightText)
+                    isFirstTextNode: isFirstTextNode
+                   
                 });
             }
             
@@ -879,7 +879,7 @@ const EmailEditor = () => {
     // 修复后的高亮应用函数
     const applyHighlighting = (componentContent, componentId) => {
         console.log('Applying highlighting for:', componentContent);
-        try {
+        return safeEditorOperation(() => {
             // Validate editor state before applying highlighting
             if (!value || !Array.isArray(value) || value.length === 0) {
                 console.warn('Invalid editor value, skipping highlighting');
@@ -895,14 +895,11 @@ const EmailEditor = () => {
             } else {
                 console.warn('Invalid new value generated, keeping current value');
             }
-        } catch (error) {
-            console.error('Error applying highlighting:', error);
-            // Don't update the editor if there's an error
-        }
+        });
     };
 
     const removeAllHighlighting = () => {
-        try {
+        return safeEditorOperation(() => {
             if (!value || !Array.isArray(value)) {
                 console.warn('Invalid editor value for removing highlighting');
                 return;
@@ -931,9 +928,7 @@ const EmailEditor = () => {
             setValue(cleanValue);
             setSelectedComponentId(null);
             setEditorKey(prev => prev + 1);
-        } catch (error) {
-            console.error('Error removing highlighting:', error);
-        }
+        });
     };
 
     // 改进后的组件选择处理函数，添加调试信息
@@ -980,16 +975,58 @@ const EmailEditor = () => {
         }
     };
 
+        // Safe editor operation wrapper
+    const safeEditorOperation = (operation) => {
+        try {
+            // Clear any existing selection to prevent path errors
+            if (editor.selection) {
+                Transforms.deselect(editor);
+            }
+            return operation();
+        } catch (error) {
+            console.error('Editor operation failed:', error);
+            if (error.message && error.message.includes('descendant at path')) {
+                console.log('Path error detected, resetting editor selection');
+                try {
+                    Transforms.deselect(editor);
+                    // Reset to start of document
+                    Transforms.select(editor, {
+                        anchor: { path: [0, 0], offset: 0 },
+                        focus: { path: [0, 0], offset: 0 }
+                    });
+                } catch (resetError) {
+                    console.error('Failed to reset editor selection:', resetError);
+                    safeResetEditor();
+                }
+            }
+            return null;
+        }
+    };
+
     // Handle clicking on highlighted text
     const handleHighlightClick = (event, componentId) => {
         try {
+            console.log('Highlight clicked for componentId:', componentId);
+            if (!componentId) {
+                console.warn('No componentId provided');
+                return;
+            }
             const component = components.find(c => c.id === componentId);
-            if (!component) return;
+            if (!component) {
+                console.warn('Component not found for id:', componentId);
+                return;
+            }
 
             // Calculate toolbar position
             const rect = event.target.getBoundingClientRect();
             const editorRect = editorRef.current?.getBoundingClientRect() || { left: 0, top: 0 };
-            
+            // Clear editor selection before showing toolbar to prevent path conflicts
+            safeEditorOperation(() => {
+                if (editor.selection) {
+                    Transforms.deselect(editor);
+                }
+            });
+
             setFloatingToolbar({
                 visible: true,
                 component: component,
@@ -1000,6 +1037,21 @@ const EmailEditor = () => {
             });
         } catch (error) {
             console.error('Error handling highlight click:', error);
+        }
+    };
+    
+    // Close floating toolbar safely
+    const closeFloatingToolbar = () => {
+        try {
+            setFloatingToolbar({ visible: false, component: null, position: null });
+            // Clear editor selection to prevent path conflicts
+            safeEditorOperation(() => {
+                if (editor.selection) {
+                    Transforms.deselect(editor);
+                }
+            });
+        } catch (error) {
+            console.error('Error closing floating toolbar:', error);
         }
     };
 
@@ -1073,7 +1125,7 @@ const EmailEditor = () => {
         }
     };
     // Component that appears when text is selected/highlighted
-const FloatingToolbar = ({ component, onReplace, onClose, position, value, setValue, setEditorKey, combinedResults, setCombinedResults, setComponents, originalText, setOriginalText, components, globalTaskId, globalUsername, userTask, getNodeText, setLastModifiedComponent }) => {
+const FloatingToolbar = ({ component, onReplace, onClose, position, value, setValue, setEditorKey, combinedResults, setCombinedResults, setComponents, originalText, setOriginalText, components, globalTaskId, getNodeText, setLastModifiedComponent, safeEditorOperation }) => {
     const [isEditing, setIsEditing] = useState(false);
     const [isRewriting, setIsRewriting] = useState(false);
     const [isQuickfixing, setIsQuickfixing] = useState(false);
@@ -1781,15 +1833,7 @@ const FloatingToolbar = ({ component, onReplace, onClose, position, value, setVa
                     
                     <div style={{ width: '1px', height: '24px', background: '#e0e0e0' }} />
                     
-                    <button
-                        style={buttonStyle}
-                        onMouseEnter={(e) => Object.assign(e.target.style, buttonHoverStyle)}
-                        onMouseLeave={(e) => Object.assign(e.target.style, buttonStyle)}
-                        onClick={handleModificationRecord}
-                        title="Adding Modification Record"
-                    >
-                        📝 Add Record
-                    </button>
+                    
                     
                     <div style={{ width: '1px', height: '24px', background: '#e0e0e0' }} />
                     
@@ -2491,10 +2535,7 @@ const Toolbar = () => {
         </div>
     );
 };
-    // Close floating toolbar
-    const closeFloatingToolbar = () => {
-        setFloatingToolbar({ visible: false, component: null, position: null });
-    };
+
 
     // Custom render functions for rich text elements
     const renderElement = ({ attributes, children, element }) => {
@@ -2752,7 +2793,7 @@ const addDimensionsToValue = (editorValue, componentContent, componentId, linked
         }
         if (dimensionText) {
             // 判断是否为第一个文本节点（用于显示dimension圆圈）
-            const isFirstTextNode = validStart === 0 && affectedNode === affectedNodes[0];
+            const isFirstTextNode = (affectedNode === affectedNodes[0]) && (validStart === 0) && (newChildren.length === 0);
             
             newChildren.push({ 
                 text: dimensionText,
@@ -2793,7 +2834,7 @@ const addDimensionsToValue = (editorValue, componentContent, componentId, linked
         return availableColor;
     };
 
-    // 4. 修改后的renderLeaf函数 - 始终显示dimension圆圈
+    // 4. 修改后的renderLeaf函数 - 每个component都显示dimension圆圈
     const renderLeaf = ({ attributes, children, leaf }) => {
         let element = children;
         
@@ -2807,10 +2848,11 @@ const addDimensionsToValue = (editorValue, componentContent, componentId, linked
             element = <u>{element}</u>;
         }
         
-        // 检查是否有dimension标记，无论是否高亮都显示圆圈
+        // // 检查是否有dimension标记或高亮
         const hasDimensions = leaf.hasDimensions && leaf.linkedIntents && leaf.linkedIntents.length > 0;
         const isHighlighted = leaf.highlight;
-        
+        const isFirstTextNode = leaf.isFirstTextNode;
+
         if (hasDimensions || isHighlighted) {
             // 获取dimension信息
             let dimensions = [];
@@ -2835,8 +2877,8 @@ const addDimensionsToValue = (editorValue, componentContent, componentId, linked
             
             element = (
                 <span style={{ position: 'relative' }}>
-                    {/* 始终显示dimension圆圈 */}
-                    {dimensions.length > 0 && (
+                    {/* 每个component的第一个文本节点都显示dimension圆圈 */}
+                    {dimensions.length > 0 && isFirstTextNode && (
                         <div style={{
                             position: 'absolute',
                             top: '-12px',
@@ -2875,7 +2917,11 @@ const addDimensionsToValue = (editorValue, componentContent, componentId, linked
                     <span
                         {...attributes}
                         style={textStyle}
-                        onClick={isHighlighted ? (e) => handleHighlightClick(e, leaf.componentId) : undefined}
+                        onClick={leaf.componentId ? (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleHighlightClick(e, leaf.componentId);
+                        } : undefined}
                     >
                         {element}
                     </span>
@@ -3198,7 +3244,7 @@ const addDimensionsToValue = (editorValue, componentContent, componentId, linked
                 userName: globalUsername,
                 taskId: globalTaskId,
                 userTask,
-                factorChoices: selectedComponent.linkedIntents,
+        
                 draftLatest: originalText,
                 componentCurrent: selectedComponent.content,
                 intentSelected,
@@ -3543,6 +3589,7 @@ const addDimensionsToValue = (editorValue, componentContent, componentId, linked
                                         userTask={userTask}
                                         getNodeText={getNodeText}
                                         setLastModifiedComponent={setLastModifiedComponent}
+                                        safeEditorOperation={safeEditorOperation}
                                     />
                                 )}
                             </div>
